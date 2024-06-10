@@ -1,4 +1,4 @@
-﻿
+
 #include "raylib.h"
 #include <raymath.h>
 #include <stdlib.h>
@@ -7,19 +7,28 @@
 #define BUFF 4096
 #define MS_BASE 300.0f
 
+struct Point { Vector3 pos; }; struct Line { int a; int b; };
 struct Player { char name[8]; int score; int controlled; };
 struct Actor {
-    char name[8]; Vector3 pos; Vector3 rot; float scale; float ms; 
+    char name[8]; Vector3 pos; Vector3 rot; Vector3 scale; float ms;
     int overlap[16]; bool F1, F2, F3;
 };
 struct Level { struct Actor handle; struct Actor actors[16]; };
 struct State {int counter; char name[32]; struct Actor a[AQ]; struct Player p[144];
-Color lc[3]; int player; Vector3 cam;
+Color lc[3]; int player; Vector3 cam; struct Point points[1234]; struct Line lines[234];
 Color tex[64 * 64];  unsigned char rec[4096];};
 
 struct State s = {0};
 
-void draw()
+void draw2() {
+    for (int i = 0; i < AQ; i++) 
+    { DrawPixel(880+s.a[i].pos.x/33.0, 444+s.a[i].pos.y/33.0, s.tex[i]); }
+    DrawRectangle(880 + s.cam.x / 33, 444 + s.cam.y / 33, 999/33, 555/33, GRAY);
+
+
+}
+
+static void draw()
     {
 
     int i, x, y;
@@ -31,17 +40,25 @@ void draw()
 
         s.lc[2] = s.tex[i]; s.lc[2].a = 88;
         if (!strcmp(s.a[i].name, "box")) {
-            DrawRectangle(x-s.a[i].scale/2, y - s.a[i].scale/2, s.a[i].scale, s.a[i].scale, s.lc[2]);
-            DrawRectangleLines(x - s.a[i].scale / 2, y - s.a[i].scale / 2, s.a[i].scale, s.a[i].scale, s.tex[i]);
+            DrawRectangle(x-s.a[i].scale.x/2, y - s.a[i].scale.x/2, s.a[i].scale.x, s.a[i].scale.x, s.lc[2]);
+            DrawRectangleLines(x - s.a[i].scale.x / 2, y - s.a[i].scale.x / 2, s.a[i].scale.x, s.a[i].scale.x, s.tex[i]);
             DrawPixel(x, y + 1, WHITE); 
         };
         if (!strcmp(s.a[i].name, "sphere")) {
-            DrawCircle(x, y, s.a[i].scale, s.lc[2]);
+            DrawCircle(x, y, s.a[i].scale.x, s.lc[2]);
             DrawPixel(x, y + 1, GREEN); 
         };
-        DrawText(TextFormat("%s, %i", s.a[i].name, i), x+20, y, 10, s.tex[i]);
+        DrawText(TextFormat("%s, %i", s.a[i].name, i), x+20, y, 10, s.tex[i]); }
+
+    for (i = 0; i < 234; i++) {
+        Vector3 VA = s.points[s.lines[i].a].pos;
+        Vector3 VB = s.points[s.lines[i].b].pos;
+        DrawLine3D((Vector3) {VA.x - s.cam.x, VA.y - s.cam.y },
+            (Vector3) { VB.x - s.cam.x, VB.y - s.cam.y }, GREEN); }
+
+    for (i = 0; i < 1234; i++) {
+        DrawPixel(s.points[i].pos.x - s.cam.x, s.points[i].pos.y - s.cam.y, MAGENTA);
     }
-    for (i = 0; i < 11111; i++) { DrawPixel((x-i*4)%16, (y-i*16)%32, WHITE); }
 
 }
 
@@ -50,7 +67,7 @@ short collision() {
     short count; count = 0;
     for (short i = 0; i < AQ; i++) {
         if (i!=c)
-        {if (CheckCollisionSpheres(s.a[c].pos, s.a[c].scale, s.a[i].pos, s.a[i].scale))
+        {if (CheckCollisionSpheres(s.a[c].pos, s.a[c].scale.x, s.a[i].pos, s.a[i].scale.x))
         {count += 1;};};};
     return count;
 };
@@ -60,28 +77,52 @@ short tile(Vector3 v) {
     int id; id = v.x + v.y;
     return (floor(v.y/123)*64+v.x/123); }
 
+void turtle(char rule[16], char depth, Vector3 pos, Vector3 rot) {
+    int step = 0;
+    Vector3 A = pos;
+    Vector3 B = Vector3Zero();
+    for  (char i = 0; i < depth; i++) {
+        for (char i = 0; i < 16; i++) {
+            //if (rule[i] == "") { continue; }
+            if (rule[i] == 'f') { B = Vector3Add(A, (Vector3) { 0.0, 74.0, 0.0 }); }
+            if (rule[i] == 'r') { B = Vector3Add(A, (Vector3) { 44.0, 0.0, 0.0 }); }
+            if (rule[i] == 'l') { B = Vector3Add(A, (Vector3) { -113.0, 0.0, 0.0 }); }
+            if (rule[i] == 'b') { B = Vector3Add(A, (Vector3) { 1.0, -40.0, 0.0 }); }
+            s.points[step].pos = A;
+            s.points[step + 1].pos = B;
+            s.lines[step].a = step; s.lines[step].b = step + 1;
+            A = B; step += 1;
+        }
+    }
+}
+
 static void reset() {
     char arr[2][8] = { "box", "sphere" };
     for (short i = 0; i < AQ; i++) {
 
-        s.a[i].pos.x = GetRandomValue(0, 2999);
+        s.a[i].pos.x = GetRandomValue(0, 3999);
         s.a[i].pos.y = GetRandomValue(0, 2999);
-        s.a[i].scale = GetRandomValue(4, 33);
+        s.a[i].scale.x = GetRandomValue(4, 33);
         s.a[i].ms = MS_BASE;
         strcpy(s.a[i].name, arr[GetRandomValue(0, 1)]);
         if (s.tex[tile(s.a[i].pos)].r == BLACK.r) {
-            s.a[i].scale = 1; strcpy(s.a[i].name, "..~..");
+            s.a[i].scale.x = 1; strcpy(s.a[i].name, "..~..");
         };
     };
     s.p[0].controlled = GetRandomValue(0, AQ);
     s.counter = 0;
     s.player = 0;
 
+    for (short i = 0; i < 1234; i++) { s.points[i].pos = (Vector3){ i, GetRandomValue(0, 1233),0.0 }; }
+    for (short i = 0; i < 234; i++) { s.lines[i].a=i;
+    s.lines[i].b=GetRandomValue(0, 1233);}
+
+    turtle("frbrfrbblbbrr", 14, s.a[s.p[0].controlled].pos, s.a[s.p[0].controlled].rot);
+
 }
 
 int main(int argc, char* argv[])
 {
-
 
     short i, x, y, r, id, collisions; float distance;
     SetTargetFPS(2222);
@@ -93,17 +134,16 @@ int main(int argc, char* argv[])
         SetAudioStreamVolume(str[i], .1);
     }
 
-    int *data = malloc(1234);
+    void *data = malloc(123);
 
     Image image = LoadImage("resources/tex.png");
     Texture2D texture = LoadTextureFromImage(image);
     Color* colors = LoadImageColors(image);
-    i = 0; for (i = 0; i < 64 * 64; i++) { s.tex[i] = colors[i]; }
-    i = 0; for (i = 0; i < 4096; i++) { s.rec[i] = sin(i/16.0)*126.0; }
+    for (int i = 0; i < 64 * 64; i++) { s.tex[i] = colors[i]; }
+    for (int i = 0; i < 4096; i++) { s.rec[i] = sin(i/16.0)*126.0; }
     UnloadImage(image); UnloadImageColors(colors);
 
     reset();
- 
 
     while (!WindowShouldClose())
     {
@@ -140,13 +180,14 @@ int main(int argc, char* argv[])
         ClearBackground(DARKGRAY); 
         Vector2 vec =
         { 0-s.cam.x, 0-s.cam.y };
-        DrawTextureEx(texture, vec, 0, 123, GRAY);
+        Color g; g = GRAY; g.a = 55;
+        DrawTextureEx(texture, vec, 0, 123, g);
 
-        draw();
+        draw(); draw2();
 
         DrawTexture(texture, 0, 450, WHITE); 
         DrawText("npuBeT", 11, 22, 20, BLUE);
-        DrawText("snrd07A2", 999-55, 4, 10, GRAY);
+        DrawText("snrd07A3", 999-55, 4, 10, GRAY);
         DrawText(TextFormat("%i", s.counter), 22, 44, 40, BLUE);
         DrawText(TextFormat("%i", AQ), 188, 44, 40, BLUE);
         DrawText(TextFormat("%i %f", collisions, distance), 188, 88, 20, BLUE);
@@ -164,7 +205,6 @@ int main(int argc, char* argv[])
        ;
 
     }
-
 
     CloseAudioDevice();         
 

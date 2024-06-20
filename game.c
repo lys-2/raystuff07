@@ -5,13 +5,14 @@
 //#include <winstuff.c>
 #endif
 
-#define AQ 1234
+#define AQ 4096
 #define BUFF 4096
 #define MS_BASE 300.0f
 
-struct Point { Vector3 pos; }; struct Line { int a; int b; };
-struct Triangle { int a; int b; int c; };
-struct Mesh2 { short start; short end; };
+struct Point { Vector3 pos; char group[4]; };
+struct Line { int a; int b; char group[4]; };
+struct Triangle { int a; int b; int c; char group[4]; };
+struct Mesh2 { struct Line lines[512]; struct Point pivot; short size; };
 struct Player { char name[8]; int score; int controlled; };
 
 struct Actor {
@@ -31,6 +32,7 @@ float cams;
 struct Point points[AQ];
 struct Line lines[AQ];
 struct Mesh2 meshes[32];
+struct Mesh mesh;
 struct Event log[128];
 double time;
 struct Action actions[12];
@@ -73,18 +75,22 @@ short collision() {
 
 void turtle(char rule[16], char depth, Vector3 pos, Vector3 rot, short start) {
     int step = start;
-    Vector3 A = pos;
+    Vector3 A = Vector3Zero();
     Vector3 B = Vector3Zero();
-    for (char i = 0; i < depth; i++) {
+    for (char i2 = 0; i2 < depth; i2++) {
         for (char i = 0; i < 16; i++) {
             //if (rule[i] == "") { continue; }
             if (rule[i] == 'f') { B = Vector3Add(A, (Vector3) { 0.0, 17.0, 0.0 }); }
             if (rule[i] == 'r') { B = Vector3Add(A, (Vector3) { 14.0, 0.0, 0.0 }); }
             if (rule[i] == 'l') { B = Vector3Add(A, (Vector3) { -11.0, 0.0, 0.0 }); }
             if (rule[i] == 'b') { B = Vector3Add(A, (Vector3) { 1.0, -4.0, 0.0 }); }
+            if (rule[i] == 'q')
+            { B = Vector3Add(A, (Vector3) { GetRandomValue(-15, 15), GetRandomValue(-15, 15), 0.0 }); }
             s.points[step].pos = A;
             s.points[step + 1].pos = B;
             s.lines[step].a = step; s.lines[step].b = step + 1;
+            strcmp(s.lines[step].group, "aaaa");
+            s.meshes[0].lines[step] = s.lines[step];
             A = B; step += 1;
         }
     }
@@ -95,16 +101,17 @@ static void reset() {
     for (short i = 0; i < 12; i++) strcpy(s.actions[i].name, actions[i]);
 
     for (short i = 0; i < AQ; i++) {
-        int pre = GetRandomValue(0, 1);
+        int rand1 = GetRandomValue(0, 1);
+        int rand2 = GetRandomValue(1, 14);
         s.a[i].hidden = false;
         s.a[i].pos.x = GetRandomValue(0, 3999);
         s.a[i].pos.y = GetRandomValue(0, 2999);
-        s.a[i].scale.x = GetRandomValue(4, 33);
+        s.a[i].scale = (Vector3){ rand2,rand2,rand2 };
         s.a[i].ms = MS_BASE;
-        s.a[i].lvl = s.alib[pre].lvl;
-        strcpy(s.a[i].name, s.alib[pre].name);
+        s.a[i].lvl = s.alib[rand1].lvl;
+        strcpy(s.a[i].name, s.alib[rand1].name);
         if (s.tex[tile(s.a[i].pos)].r == BLACK.r) {
-            s.a[i].scale.x = 1; strcpy(s.a[i].name, "..~..");
+            s.a[i].scale = (Vector3){1,1,1}; strcpy(s.a[i].name, "..~..");
             //s.a[i].hidden = true;
         };
     };
@@ -120,12 +127,28 @@ static void reset() {
         s.lines[i].b = GetRandomValue(0, 1233);
     }
 
-    turtle("frbrfrbrlbbrr", 24, s.a[s.p[0].controlled].pos, s.a[s.p[0].controlled].rot, 0);
-    turtle("llfllflf", 24, s.a[s.p[0].controlled].pos, s.a[s.p[0].controlled].rot, 333);
-    turtle("bllflll", 24, s.a[s.p[0].controlled].pos, s.a[s.p[0].controlled].rot, 555);
-    turtle("ffrfrflb", 24, s.a[s.p[0].controlled].pos, s.a[s.p[0].controlled].rot, 777);
+    turtle("frbqqqbrlqqr", 24, s.a[s.p[0].controlled].pos, s.a[s.p[0].controlled].rot, 0);
+    turtle("llfllqflf", 24, s.a[s.p[0].controlled].pos, s.a[s.p[0].controlled].rot, 333);
+    turtle("qbllflll", 24, s.a[s.p[0].controlled].pos, s.a[s.p[0].controlled].rot, 555);
+    turtle("ffrfrflqqb", 24, s.a[s.p[0].controlled].pos, s.a[s.p[0].controlled].rot, 777);
 
 }
+Vector3 transform(Vector3 A, Vector3 position, Vector3 scale, Vector3 rotate)
+{
+    Vector3 B; Matrix M; M = MatrixRotateXYZ(rotate);
+    B = Vector3Transform(A, M);
+    B = Vector3Multiply(B, scale);
+    B = Vector3Add(B, position);
+    return B; 
+}
+void drawmesh(int id, Vector3 position, Vector3 scale, Vector3 rotate, Color color)
+{
+    Vector3 A, B;
+    for (short i = 0; i < 128; i++) {
+        A = transform(s.points[s.meshes[id].lines[i].a].pos, position, scale, rotate);
+        B = transform(s.points[s.meshes[id].lines[i].b].pos, position, scale, rotate);
+        DrawLine ( A.x, A.y,B.x, B.y, color); }
+};
 
 void draw2() {
     
@@ -134,15 +157,16 @@ void draw2() {
     for (int i = 0; i < AQ; i++)
     {
         struct Vector3 v = s.a[i].pos;
-        v = Vector3RotateByAxisAngle(v, (Vector3) { .2, 1, .1 }, s.time);
+        v = Vector3RotateByAxisAngle(v, (Vector3) { 1, 0, 0 }, s.time);
         v = Vector3Add(v, (Vector3) { 1111, 0, 0 });
-        DrawPixel(880 + v.x / 33.0, 333 + v.y / 33.0, s.tex[i]);
+        DrawPixel(844 + v.x / 33.0, 333 + v.y / 33.0, s.tex[i]);
     }
     for (int i = 0; i < AQ; i++)
     {
         DrawPixel(555+(8*(i%64)),  8*(i/64) , s.tex[i]);
     }
     DrawRectangle(880 + s.cam.x / 33, 444 + s.cam.y / 33, 999/33, 555/33, ColorAlpha(BLACK, .5));
+
 }
 
 static void draw()
@@ -154,22 +178,29 @@ static void draw()
     for (i = 0; i < AQ; i++) {
 
         if (s.a[i].hidden) continue;
+
         x = (s.a[i].pos.x-s.cam.x)*s.cams;
         y = (s.a[i].pos.y-s.cam.y)*s.cams;
+        if (x > 1111 || x < -100) continue;
+        if (y > 666 || y < -100) continue;
 
-        s.lc[2] = s.tex[i]; s.lc[2].a = 88;
+        Color c = s.tex[i]; c.a = 88;
         if (!strcmp(s.a[i].name, "box")) {
             DrawRectangle(x-s.a[i].scale.x * s.cams /2.0, y - s.a[i].scale.x * s.cams /2.0,
-                s.a[i].scale.x*s.cams, s.a[i].scale.x * s.cams, s.lc[2]);
+                s.a[i].scale.x*s.cams, s.a[i].scale.x * s.cams, c);
             DrawRectangleLines(round(x - s.a[i].scale.x * s.cams / 2.0),
                 round(y - s.a[i].scale.x * s.cams / 2.0),
                 s.a[i].scale.x * s.cams, s.a[i].scale.x * s.cams, s.tex[i]);
             DrawPixel(x, y, WHITE); 
         };
         if (!strcmp(s.a[i].name, "sphere")) {
-            DrawCircle(x, y, s.a[i].scale.x*s.cams, s.lc[2]);
+            DrawCircle(x, y, s.a[i].scale.x*s.cams, c);
+            drawmesh(0, (Vector3) { x, y, 0 }, Vector3Scale(s.a[i].scale, s.cams/4),
+                (Vector3) { 0, sin(s.time/222) *2,i }, c);
             DrawPixel(x, y, GREEN); 
         };
+        if (s.cams < .5) continue;
+
         DrawText(TextFormat("%s, %i, lvl: %i", s.a[i].name, i, s.a[i].lvl), x + 20.0, y, 10, s.tex[i])
             ; }
 
@@ -187,6 +218,11 @@ static void draw()
         DrawPixel(x, y, MAGENTA);
     }
 
+    for (i = 0; i < 8; i++) { drawmesh(0,
+        (Vector3) {i*44, 444, 0},
+        Vector3Scale((Vector3) {1, 1, 1}, sin(s.time) / 10),
+        (Vector3) {
+        i, i, sin(s.time)*110 }, ColorFromHSV(i * 11, .5, i / 2)); };
 }
 
 void drawUI(int id, Texture texture, short collisions, float distance, int x, int y) {
@@ -231,6 +267,8 @@ int main(int argc, char* argv[])
 
     void* data = malloc(sizeof(struct State) * 1111); data = 1;
 
+    s.mesh = GenMeshCube(14, 15, 16);
+
     Image image = LoadImage("resources/tex.png");
     Texture2D texture = LoadTextureFromImage(image);
     Color* colors = LoadImageColors(image);
@@ -269,7 +307,7 @@ int main(int argc, char* argv[])
         PlayAudioStream(str[1]);
     }
 
-        s.cams *= 1+GetMouseWheelMove()/2;
+        s.cams += GetMouseWheelMove()/8.0;
         
         SetAudioStreamVolume(str[0], 0);
         if (IsKeyDown(KEY_Q)) { SetAudioStreamVolume(str[0], .1); s.actions[5].used = GetTime();
@@ -280,14 +318,14 @@ int main(int argc, char* argv[])
         }
         };
 
-        for (int i = 0; i < AQ; i++) { s.a[i].pos.z = s.tex[tile(s.a[i].pos)].r*3.0; }
+        for (int i = 0; i < AQ; i++) { s.a[i].pos.z = s.tex[tile(s.a[i].pos)].r; }
 
 
         BeginDrawing();
         s.cam.x = s.a[id].pos.x -300.0/s.cams; s.cam.y = s.a[id].pos.y - 300.0/s.cams;
 
         ClearBackground((Color){0,12,44,255});
-        draw();
+
         drawUI(id, texture, collisions, distance, x, y);
         Vector2 vec =
         { (0 - s.cam.x)*s.cams, (0 - s.cam.y) * s.cams };
@@ -295,6 +333,7 @@ int main(int argc, char* argv[])
         DrawTextureEx(texture, vec, 0, 123 * s.cams, g);
 
         draw2();
+        draw();
 
         EndDrawing();
 

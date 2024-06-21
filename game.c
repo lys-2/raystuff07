@@ -20,8 +20,13 @@ struct Actor {
     int overlap[2]; bool hidden; 
 };
 struct Scene { struct Actor actors[16]; };
-struct Event { char event[32]; };
-struct Action { char name[4]; double used; };
+struct Action { char name[4]; float used; };
+
+struct AKey { int key; short author; float time; };
+struct ASay { char message[64]; short author; float time; };
+struct AMove { Vector2 move; short author; float time; bool mouse; bool turn; };
+struct ASelect { Vector2 A; Vector2 B; short author; float time; };
+
 struct State {int counter; char name[32];
 struct Actor alib[16]; struct Actor a[AQ];
 struct Player p[144];
@@ -33,13 +38,15 @@ struct Point points[AQ];
 struct Line lines[AQ];
 struct Mesh2 meshes[32];
 struct Mesh mesh;
-struct Event log[128];
 double time;
 struct Action actions[12];
 Color tex[64 * 64];
-unsigned char rec[4096];};
+unsigned char rec[4096];
+struct AKey key[8]; char key_cur;
+struct ASay say[512];
+};
 
-char actions[12][4] = {"W", "A", "S", "D", "E", "Q", "R"};
+char keys[12][4] = {"W", "A", "S", "D", "E", "Q", "R"};
 
 struct State s = {
     .alib = {
@@ -98,7 +105,7 @@ void turtle(char rule[16], char depth, Vector3 pos, Vector3 rot, short start) {
 
 static void reset() {
 
-    for (short i = 0; i < 12; i++) strcpy(s.actions[i].name, actions[i]);
+    for (short i = 0; i < 12; i++) strcpy(s.actions[i].name, keys[i]);
 
     for (short i = 0; i < AQ; i++) {
         int rand1 = GetRandomValue(0, 1);
@@ -128,9 +135,7 @@ static void reset() {
     }
 
     turtle("frbqqqbrlqqr", 24, s.a[s.p[0].controlled].pos, s.a[s.p[0].controlled].rot, 0);
-    turtle("llfllqflf", 24, s.a[s.p[0].controlled].pos, s.a[s.p[0].controlled].rot, 333);
-    turtle("qbllflll", 24, s.a[s.p[0].controlled].pos, s.a[s.p[0].controlled].rot, 555);
-    turtle("ffrfrflqqb", 24, s.a[s.p[0].controlled].pos, s.a[s.p[0].controlled].rot, 777);
+
 
 }
 Vector3 transform(Vector3 A, Vector3 position, Vector3 scale, Vector3 rotate)
@@ -243,14 +248,11 @@ void drawUI(int id, Texture texture, short collisions, float distance, int x, in
     DrawText(TextFormat("*", (int)floor(s.cam.x + x),
         (int)floor(s.cam.y + y)), x - 10, y - 16, 40, BLACK);
 
-    for (int i = 0; i < 16; i++) { DrawText(s.log[i].event, 777, 444 + i * 10, 10, GRAY); };
     for (int i = 0; i < 12; i++) DrawText(s.actions[i].name,
         0, 80 + i * 22, 20, ColorContrast(PINK,  s.actions[i].used-GetTime()+1));
 
 }
 
-void action();
-void log();
 
 int main(int argc, char* argv[])
 {
@@ -275,6 +277,7 @@ int main(int argc, char* argv[])
     for (int i = 0; i < 64 * 64; i++) { s.tex[i] = colors[i]; }
     for (int i = 0; i < 4096; i++) { s.rec[i] = sin(i/16.0)*126.0; }
     UnloadImage(image); UnloadImageColors(colors);
+
 
     reset();
 
@@ -320,6 +323,12 @@ int main(int argc, char* argv[])
 
         for (int i = 0; i < AQ; i++) { s.a[i].pos.z = s.tex[tile(s.a[i].pos)].r; }
 
+        int key =  GetCharPressed();
+        if (key) { s.key[s.key_cur].key = key; s.key_cur += 1; s.key_cur %=8; };
+
+        for (int i = 0; i < 8; i++) {
+            DrawText(TextFormat("%c", (char)s.key[i].key), 16, 188+i*24, 20, GREEN);
+        };
 
         BeginDrawing();
         s.cam.x = s.a[id].pos.x -300.0/s.cams; s.cam.y = s.a[id].pos.y - 300.0/s.cams;
@@ -338,8 +347,9 @@ int main(int argc, char* argv[])
         EndDrawing();
 
        if (!IsAudioStreamPlaying(str[0]) & IsAudioStreamReady(str[0])) {PlayAudioStream(str[0]);}
-       if (IsAudioStreamProcessed(str[0])) { UpdateAudioStream(str[0], &s.rec[x*64], BUFF); }
-       ;
+       if (IsAudioStreamProcessed(str[0])) { UpdateAudioStream(str[0], &s.rec[x*64], BUFF); };
+
+
 
     }
 

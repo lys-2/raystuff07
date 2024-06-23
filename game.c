@@ -17,7 +17,7 @@ struct Player { char name[8]; int score; int controlled; };
 
 struct Actor {
     char name[8]; short lvl; Vector3 pos; Vector3 rot; Vector3 scale; float ms;
-    int overlap[2]; bool hidden; 
+    int overlap[2]; bool hidden; char stack;
 };
 struct Scene { struct Actor actors[16]; };
 struct Action { char name[4]; float used; };
@@ -42,8 +42,8 @@ double time;
 struct Action actions[12];
 Color tex[64 * 64];
 unsigned char rec[4096];
-struct AKey key[8]; char key_cur;
-struct ASay say[512];
+struct AKey key[16]; char key_cur;
+struct ASay say[512]; char say_cur;
 };
 
 char keys[12][4] = {"W", "A", "S", "D", "E", "Q", "R"};
@@ -51,7 +51,7 @@ char keys[12][4] = {"W", "A", "S", "D", "E", "Q", "R"};
 struct State s = {
     .alib = {
         {"box", 1},
-        {"sphere", 2},
+        {"ball"},
         {"player", 1},
         {"camera"},
         {"saa", 3}
@@ -108,9 +108,11 @@ static void reset() {
     for (short i = 0; i < 12; i++) strcpy(s.actions[i].name, keys[i]);
 
     for (short i = 0; i < AQ; i++) {
+
         int rand1 = GetRandomValue(0, 1);
         int rand2 = GetRandomValue(1, 14);
         s.a[i].hidden = false;
+        s.a[i].rot = (Vector3){0,0,GetRandomValue(0, PI*2)};
         s.a[i].pos.x = GetRandomValue(0, 3999);
         s.a[i].pos.y = GetRandomValue(0, 2999);
         s.a[i].scale = (Vector3){ rand2,rand2,rand2 };
@@ -133,6 +135,9 @@ static void reset() {
         s.lines[i].a = i;
         s.lines[i].b = GetRandomValue(0, 1233);
     }
+
+    for (short i = 0; i < AQ; i++) { s.a[i].pos = s.points[i].pos; s.a[i].pos.y += 3; }
+
 
     turtle("frbqqqbrlqqr", 24, s.a[s.p[0].controlled].pos, s.a[s.p[0].controlled].rot, 0);
 
@@ -162,9 +167,9 @@ void draw2() {
     for (int i = 0; i < AQ; i++)
     {
         struct Vector3 v = s.a[i].pos;
-        v = Vector3RotateByAxisAngle(v, (Vector3) { 1, 0, 0 }, s.time);
+        v = Vector3RotateByAxisAngle(v, (Vector3) { 1, 0, 0 }, 3.14/3);
         v = Vector3Add(v, (Vector3) { 1111, 0, 0 });
-        DrawPixel(844 + v.x / 33.0, 333 + v.y / 33.0, s.tex[i]);
+        DrawPixel(844 + v.x / 33.0, 400 + v.y / 33.0, s.tex[i]);
     }
     for (int i = 0; i < AQ; i++)
     {
@@ -196,16 +201,23 @@ static void draw()
             DrawRectangleLines(round(x - s.a[i].scale.x * s.cams / 2.0),
                 round(y - s.a[i].scale.x * s.cams / 2.0),
                 s.a[i].scale.x * s.cams, s.a[i].scale.x * s.cams, s.tex[i]);
+            drawmesh(0, (Vector3) { x, y, 0 }, Vector3Scale(s.a[i].scale, s.cams / 4),
+                (Vector3) {
+                0, sin(s.time / 222) * 2, i
+            }, c);
             DrawPixel(x, y, WHITE); 
         };
-        if (!strcmp(s.a[i].name, "sphere")) {
+        if (!strcmp(s.a[i].name, "ball")) {
             DrawCircle(x, y, s.a[i].scale.x*s.cams, c);
-            drawmesh(0, (Vector3) { x, y, 0 }, Vector3Scale(s.a[i].scale, s.cams/4),
-                (Vector3) { 0, sin(s.time/222) *2,i }, c);
+
             DrawPixel(x, y, GREEN); 
         };
-        if (s.cams < .5) continue;
 
+        Vector3 V = {0, s.a[i].scale.x * s.cams, 0};
+        V = transform(V, (Vector3) {x,y,0}, Vector3One(), s.a[i].rot);
+
+        DrawLine(x, y, V.x, V.y, WHITE);
+        if (s.cams < .5) continue;
         DrawText(TextFormat("%s, %i, lvl: %i", s.a[i].name, i, s.a[i].lvl), x + 20.0, y, 10, s.tex[i])
             ; }
 
@@ -236,10 +248,10 @@ void drawUI(int id, Texture texture, short collisions, float distance, int x, in
     DrawText("npuBeT", 11, 22, 20, GRAY);
     DrawText("snrd07A3", 999 - 55, 4, 10, GRAY);
     DrawText(TextFormat("%i", s.counter), 22, 44, 40, GRAY);
-    DrawText(TextFormat("%i", AQ), 188, 44, 40, GRAY);
-    DrawText(TextFormat("%i %f", collisions, distance), 188, 88, 20, GRAY);
+    DrawText(TextFormat("%i", AQ), 188, 8, 10, GRAY);
+    DrawText(TextFormat("%i %f", collisions, distance), 188, 16, 10, GRAY);
     DrawText(TextFormat("%f, %i", s.a[id].pos.x, tile(s.a[id].pos)),
-        188, 111, 20, s.tex[tile(s.a[id].pos)]);
+        188, 32, 20, s.tex[tile(s.a[id].pos)]);
     DrawText(TextFormat("fps: %i", GetFPS()), 4, 4, 10, PINK);
     DrawText(TextFormat("%f", GetFrameTime() * 1000.0f), 64, 4, 10, PINK);
     DrawText(TextFormat("%i", (int)s.time), 4, 16, 10, PINK);
@@ -278,7 +290,7 @@ int main(int argc, char* argv[])
     for (int i = 0; i < 4096; i++) { s.rec[i] = sin(i/16.0)*126.0; }
     UnloadImage(image); UnloadImageColors(colors);
 
-
+    float tx, ty;
     reset();
 
     while (!WindowShouldClose())
@@ -293,14 +305,22 @@ int main(int argc, char* argv[])
         if (IsKeyDown(KEY_R)) { reset(); }
         if (IsKeyPressed(KEY_F)) { s.cams /= 2; }
         if (IsKeyPressed(KEY_G)) { s.cams *= 2; }
-        if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) 
-        { s.a[id].pos.y -= distance; s.actions[0].used = GetTime();}
-        if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) 
-        {s.a[id].pos.y += distance; s.actions[2].used = GetTime();} 
-        if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D))
-        { s.a[id].pos.x += distance; s.actions[3].used = GetTime(); }
-        if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) 
-        {s.a[id].pos.x -= distance; s.actions[1].used = GetTime();}
+
+        tx = 0; ty = 0;
+
+        if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W))  { s.actions[0].used = GetTime();  ty -= 1; }
+        if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S))  { s.actions[2].used = GetTime();ty += 1; } 
+        if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D))  {  s.actions[3].used = GetTime();  tx += 1;}
+        if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A))  { s.actions[1].used = GetTime(); tx -= 1; }
+
+        s.a[id].pos.y += distance*ty; 
+        s.a[id].pos.x += distance*tx; 
+
+        if  (!(tx == 0.0 && ty == 0.0)) {
+            s.a[id].rot.z = Vector2Angle((Vector2) { 0, 1 }, (Vector2) { tx, ty });
+            DrawText(TextFormat("%f", s.a[id].rot.z), 4, 100, 10, PINK);
+        }
+
         if (IsKeyDown(KEY_T) || IsKeyDown(KEY_A))
         {}
         if (IsKeyPressed(KEY_E)) {
@@ -308,7 +328,10 @@ int main(int argc, char* argv[])
             UpdateAudioStream(str[1], s.rec, BUFF);
         SetAudioStreamPitch(str[1], GetRandomValue(4, 16));
         PlayAudioStream(str[1]);
+        SetMousePosition(GetRandomValue(0, 999), GetRandomValue(0, 555));
+
     }
+
 
         s.cams += GetMouseWheelMove()/8.0;
         
@@ -323,12 +346,14 @@ int main(int argc, char* argv[])
 
         for (int i = 0; i < AQ; i++) { s.a[i].pos.z = s.tex[tile(s.a[i].pos)].r; }
 
-        int key =  GetCharPressed();
-        if (key) { s.key[s.key_cur].key = key; s.key_cur += 1; s.key_cur %=8; };
+        int key =  GetKeyPressed();
+        if (key) { s.key[s.key_cur].key = key; s.key_cur += 1; s.key_cur %=16; };
 
-        for (int i = 0; i < 8; i++) {
-            DrawText(TextFormat("%c", (char)s.key[i].key), 16, 188+i*24, 20, GREEN);
+        DrawRectangle(16 + (s.key_cur / 4) * 24, 333 + (s.key_cur % 4) * 24, 16, 16, ORANGE);
+        for (int i = 0; i < 16; i++) {
+            DrawText(TextFormat("%c", s.key[i].key), 16+(i/4)*24, 333+(i%4)*24, 20, GREEN);
         };
+
 
         BeginDrawing();
         s.cam.x = s.a[id].pos.x -300.0/s.cams; s.cam.y = s.a[id].pos.y - 300.0/s.cams;
@@ -348,8 +373,6 @@ int main(int argc, char* argv[])
 
        if (!IsAudioStreamPlaying(str[0]) & IsAudioStreamReady(str[0])) {PlayAudioStream(str[0]);}
        if (IsAudioStreamProcessed(str[0])) { UpdateAudioStream(str[0], &s.rec[x*64], BUFF); };
-
-
 
     }
 

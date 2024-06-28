@@ -5,21 +5,35 @@
 //#include <winstuff.c>
 #endif
 
+
 #define AQ 4096
 #define BUFF 4096
 #define MS_BASE 300.0f
+#define max(x, y) (((x) > (y)) ? (x) : (y))
+#define min(x, y) (((x) < (y)) ? (x) : (y))
 
 struct Point { Vector3 pos; char group[4]; };
 struct Line { int a; int b; char group[4]; };
 struct Triangle { int a; int b; int c; char group[4]; };
 struct Mesh2 { struct Line lines[512]; struct Point pivot; short size; };
-struct Player { char name[8]; int score; int controlled; };
+struct User { char name[8]; char age;  };
+struct Player { 
+    char name[8]; int score; int controlled; bool is_selecting;
+short highlight[128]; short selected[128];
+Vector2 SA;
+Vector2 SB;
+};
+
+enum Mode {play, input};
+enum Class {ELF, MELEE};
 
 struct Actor {
-    char name[8]; short lvl; Vector3 pos; Vector3 rot; Vector3 scale; float ms;
-    int overlap[2]; bool hidden; char stack;
+    unsigned char name[8]; unsigned char lvl; Vector3 pos; Vector3 rot; Vector3 scale; float ms;
+    int overlap[2]; unsigned char stack;
+    enum Class class; short from; short to[16];
+     bool hidden; bool high; bool selected; bool free;
 };
-struct Scene { struct Actor actors[16]; };
+
 struct Action { char name[4]; float used; };
 
 struct AKey { int key; short author; float time; };
@@ -30,10 +44,12 @@ struct ASelect { Vector2 A; Vector2 B; short author; float time; };
 struct State {int counter; char name[32];
 struct Actor alib[16]; struct Actor a[AQ];
 struct Player p[144];
+enum Mode mode;
 Color lc[3];
 int player;
 Vector3 cam;
 float cams;
+void* data;
 struct Point points[AQ];
 struct Line lines[AQ];
 struct Mesh2 meshes[32];
@@ -54,10 +70,17 @@ struct State s = {
         {"ball"},
         {"player", 1},
         {"camera"},
+        {"light"},
         {"saa", 3}
       },
     .actions = {{"a"}, {"b"}},
+    .mode = play,
     .cams = 1
+};
+
+
+void tick(short actor) { 
+
 };
 
 short tile(Vector3 v) {
@@ -117,7 +140,7 @@ static void reset() {
         s.a[i].pos.y = GetRandomValue(0, 2999);
         s.a[i].scale = (Vector3){ rand2,rand2,rand2 };
         s.a[i].ms = MS_BASE;
-        s.a[i].lvl = s.alib[rand1].lvl;
+        s.a[i].lvl = s.a[i].scale.x;
         strcpy(s.a[i].name, s.alib[rand1].name);
         if (s.tex[tile(s.a[i].pos)].r == BLACK.r) {
             s.a[i].scale = (Vector3){1,1,1}; strcpy(s.a[i].name, "..~..");
@@ -194,16 +217,21 @@ static void draw()
         if (x > 1111 || x < -100) continue;
         if (y > 666 || y < -100) continue;
 
-        Color c = s.tex[i]; c.a = 88;
+        Color c = s.tex[i]; c.a = 88;  
+        if (s.a[i].high) { c = GREEN; }
+        if (s.a[i].selected) { c = BLUE;}
         if (!strcmp(s.a[i].name, "box")) {
             DrawRectangle(x-s.a[i].scale.x * s.cams /2.0, y - s.a[i].scale.x * s.cams /2.0,
                 s.a[i].scale.x*s.cams, s.a[i].scale.x * s.cams, c);
             DrawRectangleLines(round(x - s.a[i].scale.x * s.cams / 2.0),
                 round(y - s.a[i].scale.x * s.cams / 2.0),
                 s.a[i].scale.x * s.cams, s.a[i].scale.x * s.cams, s.tex[i]);
-            drawmesh(0, (Vector3) { x, y, 0 }, Vector3Scale(s.a[i].scale, s.cams / 4),
+            drawmesh(0, (Vector3) {
+                (s.points[i].pos.x - s.cam.x)* s.cams,
+                    (s.points[i].pos.y - s.cam.y)* s.cams,
+                    0 }, Vector3Scale(s.a[i].scale, s.cams / 4),
                 (Vector3) {
-                0, sin(s.time / 222) * 2, i
+                0, sin(s.time / 222) * 2, s.a[i].rot.z
             }, c);
             DrawPixel(x, y, WHITE); 
         };
@@ -235,7 +263,7 @@ static void draw()
         DrawPixel(x, y, MAGENTA);
     }
 
-    for (i = 0; i < 8; i++) { drawmesh(0,
+    for (i = 0; i < 22; i++) { drawmesh(0,
         (Vector3) {i*44, 444, 0},
         Vector3Scale((Vector3) {1, 1, 1}, sin(s.time) / 10),
         (Vector3) {
@@ -249,12 +277,14 @@ void drawUI(int id, Texture texture, short collisions, float distance, int x, in
     DrawText("snrd07A3", 999 - 55, 4, 10, GRAY);
     DrawText(TextFormat("%i", s.counter), 22, 44, 40, GRAY);
     DrawText(TextFormat("%i", AQ), 188, 8, 10, GRAY);
+    DrawText(TextFormat("%f", s.cams), 222, 8, 10, GRAY);
     DrawText(TextFormat("%i %f", collisions, distance), 188, 16, 10, GRAY);
     DrawText(TextFormat("%f, %i", s.a[id].pos.x, tile(s.a[id].pos)),
         188, 32, 20, s.tex[tile(s.a[id].pos)]);
     DrawText(TextFormat("fps: %i", GetFPS()), 4, 4, 10, PINK);
     DrawText(TextFormat("%f", GetFrameTime() * 1000.0f), 64, 4, 10, PINK);
     DrawText(TextFormat("%i", (int)s.time), 4, 16, 10, PINK);
+    DrawText(TextFormat("%f", s.time), 4, 32, 10, PINK);
     DrawText(TextFormat("%f", s.time), 4, 32, 10, PINK);
 
     DrawText(TextFormat("*", (int)floor(s.cam.x + x),
@@ -265,6 +295,9 @@ void drawUI(int id, Texture texture, short collisions, float distance, int x, in
 
 }
 
+
+Vector2 w2s(Vector2 w) { return (Vector2) { (w.x-s.cam.x)*s.cams, (w.y-s.cam.y)*s.cams }; };
+Vector2 s2w(Vector2 sc) { return (Vector2) { (sc.x / s.cams) + s.cam.x, (sc.y / s.cams) + s.cam.y }; };
 
 int main(int argc, char* argv[])
 {
@@ -279,7 +312,7 @@ int main(int argc, char* argv[])
         SetAudioStreamVolume(str[i], .1);
     }
 
-    void* data = malloc(sizeof(struct State) * 1111); data = 1;
+    void* data = malloc(sizeof(struct State) * 1111); s.data = data;
 
     s.mesh = GenMeshCube(14, 15, 16);
 
@@ -313,11 +346,54 @@ int main(int argc, char* argv[])
         if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D))  {  s.actions[3].used = GetTime();  tx += 1;}
         if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A))  { s.actions[1].used = GetTime(); tx -= 1; }
 
+
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            s.p[0].is_selecting = true;
+            s.p[0].SA = s2w((Vector2){x,y});
+        }
+        if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+            s.p[0].SB = s2w((Vector2){ x,y });
+            Vector2 SA; SA = s.p[0].SA;
+            Vector2 SB; SB = s.p[0].SB;
+            for (int i = 0; i < AQ; i++) {
+                s.a[i].high = false;
+                if (CheckCollisionPointRec(
+                    (Vector2) {s.a[i].pos.x, s.a[i].pos.y},
+                    (Rectangle) {
+                    min(SA.x, SB.x),
+                        min(SA.y, SB.y),
+                        abs(SB.x - SA.x),
+                        abs(SB.y - SA.y)
+                })) {s.a[i].high = true; }
+            };
+        }
+        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+
+            for (int i = 0; i < AQ; i++) { s.a[i].selected=  s.a[i].high; s.a[i].high = false; }
+            s.p[0].is_selecting = false;
+
+        }
+
+        if (s.p[0].is_selecting) {
+            Vector2 SA; SA = w2s(s.p[0].SA);
+            Vector2 SB; SB = w2s(s.p[0].SB);
+            DrawRectangle(SA.x, SA.y, 22, 22, ORANGE);
+            DrawRectangle(SB.x, SB.y, 22, 22, GREEN);
+            DrawRectangle(SB.x, SB.y, 22, 22, GREEN);
+            DrawRectangle(
+                min(SA.x, SB.x),
+                min(SA.y, SB.y),
+                abs(SB.x - SA.x),
+                abs(SB.y - SA.y),
+                (Color) {
+                11, 111, 222, 222
+            });
+        }
         s.a[id].pos.y += distance*ty; 
         s.a[id].pos.x += distance*tx; 
 
         if  (!(tx == 0.0 && ty == 0.0)) {
-            s.a[id].rot.z = Vector2Angle((Vector2) { 0, 1 }, (Vector2) { tx, ty });
+            s.a[id].rot.z = Vector2Angle((Vector2) { 0, 1 }, Vector2Normalize((Vector2) { tx, ty }));
             DrawText(TextFormat("%f", s.a[id].rot.z), 4, 100, 10, PINK);
         }
 
@@ -346,6 +422,26 @@ int main(int argc, char* argv[])
 
         for (int i = 0; i < AQ; i++) { s.a[i].pos.z = s.tex[tile(s.a[i].pos)].r; }
 
+
+        for (int i = 0; i < AQ; i++) {
+            //s.a[i].high = false;
+
+            if (
+                CheckCollisionPointCircle(
+                    (Vector2) { x, y },
+                    (Vector2) { (
+                        s.a[i].pos.x-s.cam.x)*s.cams,
+                    (s.a[i].pos.y - s.cam.y)* s.cams
+            },
+                    s.a[i].scale.x*s.cams)
+                ) {
+                s.a[i].high = true;
+                DrawText(TextFormat("%i", i), 111, 111, 20, PINK);
+            }
+        }
+
+        for (int i = 0; i < AQ; i++) { tick(i); };
+
         int key =  GetKeyPressed();
         if (key) { s.key[s.key_cur].key = key; s.key_cur += 1; s.key_cur %=16; };
 
@@ -354,9 +450,9 @@ int main(int argc, char* argv[])
             DrawText(TextFormat("%c", s.key[i].key), 16+(i/4)*24, 333+(i%4)*24, 20, GREEN);
         };
 
-
         BeginDrawing();
-        s.cam.x = s.a[id].pos.x -300.0/s.cams; s.cam.y = s.a[id].pos.y - 300.0/s.cams;
+        s.cam.x = s.a[id].pos.x -300.0/s.cams;
+        s.cam.y = s.a[id].pos.y - 300.0/s.cams;
 
         ClearBackground((Color){0,12,44,255});
 

@@ -1,10 +1,13 @@
 
 #include "raylib.h"
 #include <raymath.h>
-#if defined(_WIN32)           
-//#include <winstuff.c>
-#endif
 
+#if defined(_WIN32)           
+#define NOGDI             
+#define NOUSER         
+#define WIN32_LEAN_AND_MEAN
+#include <Winsock2.h> 
+#endif
 
 #define AQ 4096
 #define BUFF 4096
@@ -17,6 +20,7 @@ struct Line { int a; int b; char group[4]; };
 struct Triangle { int a; int b; int c; char group[4]; };
 struct Mesh2 { struct Line lines[512]; struct Point pivot; short size; };
 struct User { char name[8]; char age;  };
+struct Mail { char message[64]; };
 struct Player { 
     char name[8]; int score; int controlled; bool is_selecting;
 short highlight[128]; short selected[128];
@@ -59,7 +63,9 @@ struct Action actions[12];
 Color tex[64 * 64];
 unsigned char rec[4096];
 struct AKey key[16]; char key_cur;
-struct ASay say[512]; char say_cur;
+struct ASay say[16]; char say_cur;
+struct Mail m_inc; struct Mail m_out;
+bool is_network;
 };
 
 char keys[12][4] = {"W", "A", "S", "D", "E", "Q", "R"};
@@ -79,6 +85,53 @@ struct State s = {
 };
 
 
+SOCKET sock;
+char buff[64];
+
+void net() {
+
+    WSADATA wsaData;
+    SOCKET ConnectSocket = INVALID_SOCKET;
+    struct addrinfo* result = NULL,
+        * ptr = NULL,
+        hints;
+    const char* sendbuf =
+        "GET / HTTP/1.1\r\nHost: www.jke.pw\r\n\r\n";
+    char recvbuf[64];
+    int iResult;
+    int recvbuflen = 64;
+
+    // Validate the parameters
+    // Initialize Winsock
+    iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
+
+
+    ZeroMemory(&hints, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+
+    // Resolve the server address and port
+    iResult = getaddrinfo("jke.pw", "80", &hints, &result);
+
+    // Attempt to connect to the first address returned by
+// the call to getaddrinfo
+    ptr = result;
+
+    // Create a SOCKET for connecting to server
+    sock = socket(ptr->ai_family, ptr->ai_socktype,
+        ptr->ai_protocol);
+
+    connect(sock, ptr->ai_addr, (int)ptr->ai_addrlen);
+    freeaddrinfo(result);
+    iResult = send(sock, sendbuf, (int)strlen(sendbuf), 0);
+    s.is_network = true;
+
+    BOOL l = 1;
+    ioctlsocket(sock, FIONBIO, (unsigned long*)&l);
+
+}
+
 void tick(short actor) { 
 
 };
@@ -92,6 +145,8 @@ short collision() {
     short c = s.p[0].controlled;
     short count; count = 0;
     for (short i = 0; i < AQ; i++) {
+        if (s.a[i].free) continue;
+
         if (i != c)
         {
             if (CheckCollisionSpheres(s.a[c].pos, s.a[c].scale.x, s.a[i].pos, s.a[i].scale.x))
@@ -135,6 +190,7 @@ static void reset() {
         int rand1 = GetRandomValue(0, 1);
         int rand2 = GetRandomValue(1, 14);
         s.a[i].hidden = false;
+        s.a[i].free = false;
         s.a[i].rot = (Vector3){0,0,GetRandomValue(0, PI*2)};
         s.a[i].pos.x = GetRandomValue(0, 3999);
         s.a[i].pos.y = GetRandomValue(0, 2999);
@@ -164,8 +220,13 @@ static void reset() {
 
     turtle("frbqqqbrlqqr", 24, s.a[s.p[0].controlled].pos, s.a[s.p[0].controlled].rot, 0);
 
+#if defined(_WIN32)           
+    net();
+#endif
+
 
 }
+
 Vector3 transform(Vector3 A, Vector3 position, Vector3 scale, Vector3 rotate)
 {
     Vector3 B; Matrix M; M = MatrixRotateXYZ(rotate);
@@ -186,9 +247,13 @@ void drawmesh(int id, Vector3 position, Vector3 scale, Vector3 rotate, Color col
 void draw2() {
     
     for (int i = 0; i < AQ; i++)
-    { DrawPixel(880+s.a[i].pos.x/33.0, 444+s.a[i].pos.y/33.0, s.tex[i]); }
+    { 
+        if (s.a[i].hidden || s.a[i].free) continue;
+        DrawPixel(880+s.a[i].pos.x/33.0, 444+s.a[i].pos.y/33.0, s.tex[i]); }
     for (int i = 0; i < AQ; i++)
     {
+        if (s.a[i].hidden || s.a[i].free) continue;
+
         struct Vector3 v = s.a[i].pos;
         v = Vector3RotateByAxisAngle(v, (Vector3) { 1, 0, 0 }, 3.14/3);
         v = Vector3Add(v, (Vector3) { 1111, 0, 0 });
@@ -196,6 +261,8 @@ void draw2() {
     }
     for (int i = 0; i < AQ; i++)
     {
+        if (s.a[i].hidden || s.a[i].free) continue;
+
         DrawPixel(555+(8*(i%64)),  8*(i/64) , s.tex[i]);
     }
     DrawRectangle(880 + s.cam.x / 33, 444 + s.cam.y / 33, 999/33, 555/33, ColorAlpha(BLACK, .5));
@@ -210,7 +277,7 @@ static void draw()
 
     for (i = 0; i < AQ; i++) {
 
-        if (s.a[i].hidden) continue;
+        if (s.a[i].hidden || s.a[i].free) continue;
 
         x = (s.a[i].pos.x-s.cam.x)*s.cams;
         y = (s.a[i].pos.y-s.cam.y)*s.cams;
@@ -274,7 +341,7 @@ void drawUI(int id, Texture texture, short collisions, float distance, int x, in
 
     DrawTexture(texture, 0, 450, WHITE);
     DrawText("npuBeT", 11, 22, 20, GRAY);
-    DrawText("snrd07A3", 999 - 55, 4, 10, GRAY);
+    DrawText("snrd07A4", 999 - 55, 4, 10, GRAY);
     DrawText(TextFormat("%i", s.counter), 22, 44, 40, GRAY);
     DrawText(TextFormat("%i", AQ), 188, 8, 10, GRAY);
     DrawText(TextFormat("%f", s.cams), 222, 8, 10, GRAY);
@@ -291,7 +358,10 @@ void drawUI(int id, Texture texture, short collisions, float distance, int x, in
         (int)floor(s.cam.y + y)), x - 10, y - 16, 40, BLACK);
 
     for (int i = 0; i < 12; i++) DrawText(s.actions[i].name,
-        0, 80 + i * 22, 20, ColorContrast(PINK,  s.actions[i].used-GetTime()+1));
+        0, 80 + i * 22, 20, ColorContrast(PINK, s.actions[i].used - GetTime() + 1));
+
+
+    DrawText(buff, 0, 444, 20, RED);
 
 }
 
@@ -339,13 +409,16 @@ int main(int argc, char* argv[])
         if (IsKeyPressed(KEY_F)) { s.cams /= 2; }
         if (IsKeyPressed(KEY_G)) { s.cams *= 2; }
 
+        if (IsKeyPressed(KEY_DELETE)) {
+            for (int i = 0; i < AQ; i++) { if (s.a[i].selected) { s.a[i].free = 1; } }
+        }
+
         tx = 0; ty = 0;
 
         if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W))  { s.actions[0].used = GetTime();  ty -= 1; }
         if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S))  { s.actions[2].used = GetTime();ty += 1; } 
         if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D))  {  s.actions[3].used = GetTime();  tx += 1;}
         if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A))  { s.actions[1].used = GetTime(); tx -= 1; }
-
 
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             s.p[0].is_selecting = true;
@@ -399,15 +472,22 @@ int main(int argc, char* argv[])
 
         if (IsKeyDown(KEY_T) || IsKeyDown(KEY_A))
         {}
+
+#if defined(_WIN32)           
+        if (s.is_network == true) {
+            int r = recv(sock, buff, 64, 0);
+        }
+#endif
+
+
         if (IsKeyPressed(KEY_E)) {
             s.actions[4].used = GetTime();  if (data != NULL) { data = NULL; free(data); };
             UpdateAudioStream(str[1], s.rec, BUFF);
-        SetAudioStreamPitch(str[1], GetRandomValue(4, 16));
-        PlayAudioStream(str[1]);
-        SetMousePosition(GetRandomValue(0, 999), GetRandomValue(0, 555));
-
-    }
-
+            SetAudioStreamPitch(str[1], GetRandomValue(4, 16));
+            PlayAudioStream(str[1]);
+                SetMousePosition(GetRandomValue(0, 999), GetRandomValue(0, 555));
+            }
+        
 
         s.cams += GetMouseWheelMove()/8.0;
         

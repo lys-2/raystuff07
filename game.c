@@ -19,16 +19,18 @@ struct Point { Vector3 pos; char group[4]; };
 struct Line { int a; int b; char group[4]; };
 struct Triangle { int a; int b; int c; char group[4]; };
 struct Mesh2 { struct Line lines[512]; struct Point pivot; short size; };
-struct User { char name[8]; char age;  };
-struct Mail { char message[64]; };
+struct User { char name[16]; char age;  };
+struct Message { char character[65]; };
+struct Mail { struct Message msg[16]; };
 struct Player { 
     char name[8]; int score; int controlled; bool is_selecting;
 short highlight[128]; short selected[128];
 Vector2 SA;
 Vector2 SB;
+Vector2 SC;
 };
 
-enum Mode {play, input};
+enum Mode {play, input, edit};
 enum Class {ELF, MELEE};
 
 struct Actor {
@@ -45,7 +47,8 @@ struct ASay { char message[64]; short author; float time; };
 struct AMove { Vector2 move; short author; float time; bool mouse; bool turn; };
 struct ASelect { Vector2 A; Vector2 B; short author; float time; };
 
-struct State {int counter; char name[32];
+struct State {
+int counter; char name[32];
 struct Actor alib[16]; struct Actor a[AQ];
 struct Player p[144];
 enum Mode mode;
@@ -53,7 +56,7 @@ Color lc[3];
 int player;
 Vector3 cam;
 float cams;
-void* data;
+struct State* save;
 struct Point points[AQ];
 struct Line lines[AQ];
 struct Mesh2 meshes[32];
@@ -77,7 +80,7 @@ struct State s = {
         {"player", 1},
         {"camera"},
         {"light"},
-        {"saa", 3}
+        {"tree", 3}
       },
     .actions = {{"a"}, {"b"}},
     .mode = play,
@@ -86,7 +89,9 @@ struct State s = {
 
 
 SOCKET sock;
-char buff[64];
+char buff0[64];
+char buff[64] = "asdzxzxczxc";
+char buff_cur = 0;
 
 void net() {
 
@@ -112,7 +117,7 @@ void net() {
     hints.ai_protocol = IPPROTO_TCP;
 
     // Resolve the server address and port
-    iResult = getaddrinfo("jke.pw", "80", &hints, &result);
+    iResult = getaddrinfo("jke.pw", "1234", &hints, &result);
 
     // Attempt to connect to the first address returned by
 // the call to getaddrinfo
@@ -124,7 +129,8 @@ void net() {
 
     connect(sock, ptr->ai_addr, (int)ptr->ai_addrlen);
     freeaddrinfo(result);
-    iResult = send(sock, sendbuf, (int)strlen(sendbuf), 0);
+    strcpy(buff, TextFormat("Time: %f", (float)GetTime()));
+    iResult = send(sock, buff, (int)strlen(sendbuf), 0);
     s.is_network = true;
 
     BOOL l = 1;
@@ -174,7 +180,7 @@ void turtle(char rule[16], char depth, Vector3 pos, Vector3 rot, short start) {
             s.points[step].pos = A;
             s.points[step + 1].pos = B;
             s.lines[step].a = step; s.lines[step].b = step + 1;
-            strcmp(s.lines[step].group, "aaaa");
+
             s.meshes[0].lines[step] = s.lines[step];
             A = B; step += 1;
         }
@@ -199,18 +205,19 @@ static void reset() {
         s.a[i].lvl = s.a[i].scale.x;
         strcpy(s.a[i].name, s.alib[rand1].name);
         if (s.tex[tile(s.a[i].pos)].r == BLACK.r) {
-            s.a[i].scale = (Vector3){1,1,1}; strcpy(s.a[i].name, "..~..");
+            s.a[i].scale = (Vector3){1,1,1}; strcpy(s.a[i].name, "tree");
             //s.a[i].hidden = true;
         };
     };
-    s.p[0].controlled = GetRandomValue(0, AQ);
+    s.p[0].controlled = GetRandomValue(0, AQ); strcpy(s.a[s.p[0].controlled].name, "player");
     s.counter = 0;
     s.player = 0;
     s.time = 0;
+    s.cams = 1;
     s.actions[6].used = GetTime();
 
     for (short i = 0; i < AQ; i++) { s.points[i].pos = (Vector3){ i, GetRandomValue(0, 1233),0.0 }; }
-    for (short i = 0; i < AQ / 3; i++) {
+    for (short i = 0; i < AQ / 32; i++) {
         s.lines[i].a = i;
         s.lines[i].b = GetRandomValue(0, 1233);
     }
@@ -220,7 +227,8 @@ static void reset() {
 
     turtle("frbqqqbrlqqr", 24, s.a[s.p[0].controlled].pos, s.a[s.p[0].controlled].rot, 0);
 
-#if defined(_WIN32)           
+#if defined(_WIN32)   
+    closesocket(sock);
     net();
 #endif
 
@@ -269,18 +277,20 @@ void draw2() {
 
 }
 
+
+
 static void draw()
     {
 
     int i;
     float x, y;
 
-    for (i = 0; i < AQ; i++) {
+    for (int i = 0; i < AQ; i++) {
 
         if (s.a[i].hidden || s.a[i].free) continue;
 
-        x = (s.a[i].pos.x-s.cam.x)*s.cams;
-        y = (s.a[i].pos.y-s.cam.y)*s.cams;
+         x = (s.a[i].pos.x-s.cam.x)*s.cams;
+         y = (s.a[i].pos.y-s.cam.y)*s.cams;
         if (x > 1111 || x < -100) continue;
         if (y > 666 || y < -100) continue;
 
@@ -293,13 +303,13 @@ static void draw()
             DrawRectangleLines(round(x - s.a[i].scale.x * s.cams / 2.0),
                 round(y - s.a[i].scale.x * s.cams / 2.0),
                 s.a[i].scale.x * s.cams, s.a[i].scale.x * s.cams, s.tex[i]);
-            drawmesh(0, (Vector3) {
-                (s.points[i].pos.x - s.cam.x)* s.cams,
-                    (s.points[i].pos.y - s.cam.y)* s.cams,
-                    0 }, Vector3Scale(s.a[i].scale, s.cams / 4),
-                (Vector3) {
-                0, sin(s.time / 222) * 2, s.a[i].rot.z
-            }, c);
+            //drawmesh(0, (Vector3) {
+            //    (s.points[i].pos.x - s.cam.x)* s.cams,
+            //        (s.points[i].pos.y - s.cam.y)* s.cams,
+            //        0 }, Vector3Scale(s.a[i].scale, s.cams / 4),
+            //    (Vector3) {
+            //    0, sin(s.time / 222) * 2, s.a[i].rot.z
+            //}, c);
             DrawPixel(x, y, WHITE); 
         };
         if (!strcmp(s.a[i].name, "ball")) {
@@ -307,13 +317,24 @@ static void draw()
 
             DrawPixel(x, y, GREEN); 
         };
+        if (!strcmp(s.a[i].name, "player")) {
+            c = ORANGE;
+            float ls = s.a[i].scale.x * s.cams;
+            DrawText("*", x-ls/2, y-ls/2, ls, c);
+
+            DrawPixel(x, y, GREEN);
+        };
 
         Vector3 V = {0, s.a[i].scale.x * s.cams, 0};
         V = transform(V, (Vector3) {x,y,0}, Vector3One(), s.a[i].rot);
 
         DrawLine(x, y, V.x, V.y, WHITE);
         if (s.cams < .5) continue;
-        DrawText(TextFormat("%s, %i, lvl: %i", s.a[i].name, i, s.a[i].lvl), x + 20.0, y, 10, s.tex[i])
+        if (!strcmp(s.a[i].name, "player")) { c = ORANGE; }
+        DrawText(TextFormat("%s, %i, lvl: %i", s.a[i].name, i, s.a[i].lvl), x + 20.0, y, 10, c)
+
+
+
             ; }
 
     for (i = 0; i < AQ; i++) {
@@ -330,11 +351,11 @@ static void draw()
         DrawPixel(x, y, MAGENTA);
     }
 
-    for (i = 0; i < 22; i++) { drawmesh(0,
-        (Vector3) {i*44, 444, 0},
-        Vector3Scale((Vector3) {1, 1, 1}, sin(s.time) / 10),
-        (Vector3) {
-        i, i, sin(s.time)*110 }, ColorFromHSV(i * 11, .5, i / 2)); };
+//    for (i = 0; i < 22; i++) { drawmesh(0,
+//        (Vector3) {i*44, 444, 0},
+//        Vector3Scale((Vector3) {1, 1, 1}, sin(s.time) / 10),
+//        (Vector3) {
+//        i, i, sin(s.time)*110 }, ColorFromHSV(i * 11, .5, i / 2)); };
 }
 
 void drawUI(int id, Texture texture, short collisions, float distance, int x, int y) {
@@ -351,8 +372,6 @@ void drawUI(int id, Texture texture, short collisions, float distance, int x, in
     DrawText(TextFormat("fps: %i", GetFPS()), 4, 4, 10, PINK);
     DrawText(TextFormat("%f", GetFrameTime() * 1000.0f), 64, 4, 10, PINK);
     DrawText(TextFormat("%i", (int)s.time), 4, 16, 10, PINK);
-    DrawText(TextFormat("%f", s.time), 4, 32, 10, PINK);
-    DrawText(TextFormat("%f", s.time), 4, 32, 10, PINK);
 
     DrawText(TextFormat("*", (int)floor(s.cam.x + x),
         (int)floor(s.cam.y + y)), x - 10, y - 16, 40, BLACK);
@@ -360,18 +379,16 @@ void drawUI(int id, Texture texture, short collisions, float distance, int x, in
     for (int i = 0; i < 12; i++) DrawText(s.actions[i].name,
         0, 80 + i * 22, 20, ColorContrast(PINK, s.actions[i].used - GetTime() + 1));
 
-
-    DrawText(buff, 0, 444, 20, RED);
+    DrawText(TextFormat("%i", s.mode), 0, 333, 20, BLUE);
 
 }
-
 
 Vector2 w2s(Vector2 w) { return (Vector2) { (w.x-s.cam.x)*s.cams, (w.y-s.cam.y)*s.cams }; };
 Vector2 s2w(Vector2 sc) { return (Vector2) { (sc.x / s.cams) + s.cam.x, (sc.y / s.cams) + s.cam.y }; };
 
 int main(int argc, char* argv[])
 {
-
+    //SetConfigFlags(FLAG_MSAA_4X_HINT);
     short i, x, y, r, id, collisions; float distance;
     SetTargetFPS(2222);
     SetAudioStreamBufferSizeDefault(BUFF);
@@ -382,9 +399,9 @@ int main(int argc, char* argv[])
         SetAudioStreamVolume(str[i], .1);
     }
 
-    void* data = malloc(sizeof(struct State) * 1111); s.data = data;
-
     s.mesh = GenMeshCube(14, 15, 16);
+    Font fontDefault = LoadFont("resources/dejavu.fnt");
+    Font font = fontDefault;
 
     Image image = LoadImage("resources/tex.png");
     Texture2D texture = LoadTextureFromImage(image);
@@ -396,8 +413,11 @@ int main(int argc, char* argv[])
     float tx, ty;
     reset();
 
+   struct State save; save = s;
+
     while (!WindowShouldClose())
     {
+
         s.time += GetFrameTime();
         collisions = collision();
         x = GetMousePosition().x; y = GetMousePosition().y;
@@ -408,6 +428,9 @@ int main(int argc, char* argv[])
         if (IsKeyDown(KEY_R)) { reset(); }
         if (IsKeyPressed(KEY_F)) { s.cams /= 2; }
         if (IsKeyPressed(KEY_G)) { s.cams *= 2; }
+
+        if (IsKeyPressed(KEY_C)) { s = save; }
+        if (IsKeyPressed(KEY_V)) { save = s; }
 
         if (IsKeyPressed(KEY_DELETE)) {
             for (int i = 0; i < AQ; i++) { if (s.a[i].selected) { s.a[i].free = 1; } }
@@ -424,6 +447,20 @@ int main(int argc, char* argv[])
             s.p[0].is_selecting = true;
             s.p[0].SA = s2w((Vector2){x,y});
         }
+
+
+        s.p[0].SC = Vector2Subtract(s2w(GetMousePosition()), s.p[0].SB);
+
+        if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+            for (int i = 0; i < AQ; i++) { if (s.a[i].selected) { 
+                s.a[i].pos.x += s.p[0].SC.x,
+                s.a[i].pos.y += s.p[0].SC.y
+                    ;
+
+            } }
+
+        }
+
         if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
             s.p[0].SB = s2w((Vector2){ x,y });
             Vector2 SA; SA = s.p[0].SA;
@@ -452,7 +489,6 @@ int main(int argc, char* argv[])
             Vector2 SB; SB = w2s(s.p[0].SB);
             DrawRectangle(SA.x, SA.y, 22, 22, ORANGE);
             DrawRectangle(SB.x, SB.y, 22, 22, GREEN);
-            DrawRectangle(SB.x, SB.y, 22, 22, GREEN);
             DrawRectangle(
                 min(SA.x, SB.x),
                 min(SA.y, SB.y),
@@ -470,18 +506,23 @@ int main(int argc, char* argv[])
             DrawText(TextFormat("%f", s.a[id].rot.z), 4, 100, 10, PINK);
         }
 
-        if (IsKeyDown(KEY_T) || IsKeyDown(KEY_A))
-        {}
-
 #if defined(_WIN32)           
-        if (s.is_network == true) {
-            int r = recv(sock, buff, 64, 0);
-        }
+        int r, i;
+            while (s.is_network == true) {
+                r = recv(sock, buff, 64, 0);
+                if (r < 1) { break; };
+                if (r < 64) strcpy(&buff[r], "\0");
+                buff_cur = r;
+                strcpy(s.m_inc.msg[i % 15].character, buff);
+                strcpy(&s.m_inc.msg[i % 15].character[r], "\0");  
+                i += 1;
+            }
+        
 #endif
 
 
         if (IsKeyPressed(KEY_E)) {
-            s.actions[4].used = GetTime();  if (data != NULL) { data = NULL; free(data); };
+            s.actions[4].used = GetTime();
             UpdateAudioStream(str[1], s.rec, BUFF);
             SetAudioStreamPitch(str[1], GetRandomValue(4, 16));
             PlayAudioStream(str[1]);
@@ -502,7 +543,7 @@ int main(int argc, char* argv[])
 
         for (int i = 0; i < AQ; i++) { s.a[i].pos.z = s.tex[tile(s.a[i].pos)].r; }
 
-
+        s.mode = play;
         for (int i = 0; i < AQ; i++) {
             //s.a[i].high = false;
 
@@ -517,6 +558,7 @@ int main(int argc, char* argv[])
                 ) {
                 s.a[i].high = true;
                 DrawText(TextFormat("%i", i), 111, 111, 20, PINK);
+
             }
         }
 
@@ -541,6 +583,16 @@ int main(int argc, char* argv[])
         { (0 - s.cam.x)*s.cams, (0 - s.cam.y) * s.cams };
         Color g; g = GRAY; g.a = 55;
         DrawTextureEx(texture, vec, 0, 123 * s.cams, g);
+
+
+        SetTextLineSpacing(0);
+
+        DrawText(TextFormat("%i", (int)buff_cur), 0, 400, 20, PINK);
+        DrawTextEx(font, buff, (Vector2) { 0, 444 }, 40, 0, BLUE);
+
+        for (int i = 0; i < 16; i++) {
+            DrawTextEx(font, s.m_inc.msg[i].character, (Vector2) { 0, 20*i }, 20, 0, GREEN);
+            ; };
 
         draw2();
         draw();

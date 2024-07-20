@@ -1,6 +1,7 @@
 
 #include "raylib.h"
 #include <raymath.h>
+#include <stdlib.h>
 
 #if defined(_WIN32)           
 #define NOGDI             
@@ -31,12 +32,14 @@ Vector2 SC;
 };
 
 enum Mode {play, input, edit};
-enum Class {ELF, MELEE};
+enum Class { ELF, MELEE };
+enum Collision {pass, overlap, block};
+struct cres { short list[16]; char count; short block; };
 
 struct Actor {
     unsigned char name[8]; unsigned char lvl; Vector3 pos; Vector3 rot; Vector3 scale; float ms;
-    int overlap[2]; unsigned char stack;
-    enum Class class; short from; short to[16];
+    struct cres collide; unsigned char stack;
+    enum Class class; short from; short to[16]; enum Collision collision;
      bool hidden; bool high; bool selected; bool free;
 };
 
@@ -49,14 +52,13 @@ struct ASelect { Vector2 A; Vector2 B; short author; float time; };
 
 struct State {
 int counter; char name[32];
-struct Actor alib[16]; struct Actor a[AQ];
+struct Actor alib[16]; struct Actor a[AQ]; struct User u[55];
 struct Player p[144];
 enum Mode mode;
 Color lc[3];
 int player;
 Vector3 cam;
 float cams;
-struct State* save;
 struct Point points[AQ];
 struct Line lines[AQ];
 struct Mesh2 meshes[32];
@@ -87,10 +89,9 @@ struct State s = {
     .cams = 1
 };
 
-
 SOCKET sock;
 char buff0[64];
-char buff[64] = "asdzxzxczxc";
+char buff[64] = "...";
 char buff_cur = 0;
 
 void net() {
@@ -101,7 +102,8 @@ void net() {
         * ptr = NULL,
         hints;
     const char* sendbuf =
-        "GET / HTTP/1.1\r\nHost: www.jke.pw\r\n\r\n";
+        //"GET / HTTP/1.1\r\nHost: www.jke.pw\r\n\r\n";
+    "sadaweawrsfzxc\r\n";
     char recvbuf[64];
     int iResult;
     int recvbuflen = 64;
@@ -118,7 +120,6 @@ void net() {
 
     // Resolve the server address and port
     iResult = getaddrinfo("jke.pw", "1234", &hints, &result);
-
     // Attempt to connect to the first address returned by
 // the call to getaddrinfo
     ptr = result;
@@ -129,8 +130,8 @@ void net() {
 
     connect(sock, ptr->ai_addr, (int)ptr->ai_addrlen);
     freeaddrinfo(result);
-    strcpy(buff, TextFormat("Time: %f", (float)GetTime()));
-    iResult = send(sock, buff, (int)strlen(sendbuf), 0);
+
+    iResult = send(sock, "....\n", 5, 0);
     s.is_network = true;
 
     BOOL l = 1;
@@ -139,7 +140,8 @@ void net() {
 }
 
 void tick(short actor) { 
-
+    //s.a[actor].rot.z += actor/111;
+    //s.a[actor].scale.x += sin(s.time/3.0)/ actor;
 };
 
 short tile(Vector3 v) {
@@ -147,21 +149,37 @@ short tile(Vector3 v) {
     return (floor(v.y / 123) * 64 + v.x / 123);
 }
 
-short collision() {
-    short c = s.p[0].controlled;
-    short count; count = 0;
-    for (short i = 0; i < AQ; i++) {
-        if (s.a[i].free) continue;
+struct cres collision(Vector3 pos, int ex) {
 
-        if (i != c)
-        {
-            if (CheckCollisionSpheres(s.a[c].pos, s.a[c].scale.x, s.a[i].pos, s.a[i].scale.x))
-            {
-                count += 1;
-            };
-        };
+    struct cres c = {.count = 0};
+    for (short i = 0; i < AQ; i++) {
+    if (c.count == 16) return c;
+    if (s.a[i].free || s.a[i].collision == pass || i == ex) continue;
+    if (!strcmp(s.a[i].name, "box")) {
+        if (CheckCollisionPointRec(
+            Vector2Rotate(Vector2Subtract((Vector2) { pos.x, pos.y },
+                (Vector2) {
+            s.a[i].pos.x, s.a[i].pos.y
+        }), -s.a[i].rot.z * (PI / 180)),
+            (Rectangle) {
+            0 - s.a[i].scale.x / 2,
+                0 - s.a[i].scale.y / 2,
+                s.a[i].scale.x,
+                s.a[i].scale.y
+        }))
+        { c.list[c.count] = i;  c.count += 1; 
+            if (s.a[i].collision == block) c.block = i;
+        }
     };
-    return count;
+    
+    if (!strcmp(s.a[i].name, "ball")) {
+        if (CheckCollisionSpheres((Vector3) {pos.x, pos.y}, 1.0,
+            (Vector3) { s.a[i].pos.x, s.a[i].pos.y }, s.a[i].scale.x))
+        { c.list[c.count] = i;  c.count += 1;
+        if (s.a[i].collision == block) c.block = i;
+        }
+    }};
+    return c;
 };
 
 void turtle(char rule[16], char depth, Vector3 pos, Vector3 rot, short start) {
@@ -194,16 +212,19 @@ static void reset() {
     for (short i = 0; i < AQ; i++) {
 
         int rand1 = GetRandomValue(0, 1);
-        int rand2 = GetRandomValue(1, 14);
+        int rand2 = GetRandomValue(2, 44);
+        int rand3 = GetRandomValue(2, 44);
         s.a[i].hidden = false;
         s.a[i].free = false;
-        s.a[i].rot = (Vector3){0,0,GetRandomValue(0, PI*2)};
+        s.a[i].rot = (Vector3){0,0,GetRandomValue(0, 360)};
         s.a[i].pos.x = GetRandomValue(0, 3999);
         s.a[i].pos.y = GetRandomValue(0, 2999);
-        s.a[i].scale = (Vector3){ rand2,rand2,rand2 };
+        s.a[i].scale = (Vector3){ rand2,rand3,rand2 };
         s.a[i].ms = MS_BASE;
+        s.a[i].collision = overlap; if (GetRandomValue(0, 111) < 11) s.a[i].collision = block;
         s.a[i].lvl = s.a[i].scale.x;
         strcpy(s.a[i].name, s.alib[rand1].name);
+        if (rand1) s.a[i].scale.x /= 2.0;
         if (s.tex[tile(s.a[i].pos)].r == BLACK.r) {
             s.a[i].scale = (Vector3){1,1,1}; strcpy(s.a[i].name, "tree");
             //s.a[i].hidden = true;
@@ -223,7 +244,6 @@ static void reset() {
     }
 
     for (short i = 0; i < AQ; i++) { s.a[i].pos = s.points[i].pos; s.a[i].pos.y += 3; }
-
 
     turtle("frbqqqbrlqqr", 24, s.a[s.p[0].controlled].pos, s.a[s.p[0].controlled].rot, 0);
 
@@ -295,14 +315,20 @@ static void draw()
         if (y > 666 || y < -100) continue;
 
         Color c = s.tex[i]; c.a = 88;  
-        if (s.a[i].high) { c = GREEN; }
-        if (s.a[i].selected) { c = BLUE;}
+        if (s.a[i].high) { c.g = 255; c.a = 222; }
+        if (s.a[i].selected) { c.b = 255; c.a = 222; }
+        if (s.a[i].collision == 2) { c = GRAY; }
         if (!strcmp(s.a[i].name, "box")) {
-            DrawRectangle(x-s.a[i].scale.x * s.cams /2.0, y - s.a[i].scale.x * s.cams /2.0,
-                s.a[i].scale.x*s.cams, s.a[i].scale.x * s.cams, c);
-            DrawRectangleLines(round(x - s.a[i].scale.x * s.cams / 2.0),
-                round(y - s.a[i].scale.x * s.cams / 2.0),
-                s.a[i].scale.x * s.cams, s.a[i].scale.x * s.cams, s.tex[i]);
+            //DrawRectangle(x-s.a[i].scale.x * s.cams /2.0, y - s.a[i].scale.y * s.cams /2.0,
+            //    s.a[i].scale.x*s.cams, s.a[i].scale.y * s.cams, c);
+            DrawRectanglePro((Rectangle)
+            { x, y, s.a[i].scale.x* s.cams, s.a[i].scale.y*s.cams },
+                (Vector2){ s.a[i].scale.x * s.cams /2.0, s.a[i].scale.y * s.cams /2.0 },
+                s.a[i].rot.z,
+                c);
+            //DrawRectangleLines(round(x - s.a[i].scale.x * s.cams / 2.0),
+            //    round(y - s.a[i].scale.x * s.cams / 2.0),
+            //    s.a[i].scale.x * s.cams, s.a[i].scale.x * s.cams, s.tex[i]);
             //drawmesh(0, (Vector3) {
             //    (s.points[i].pos.x - s.cam.x)* s.cams,
             //        (s.points[i].pos.y - s.cam.y)* s.cams,
@@ -386,6 +412,15 @@ void drawUI(int id, Texture texture, short collisions, float distance, int x, in
 Vector2 w2s(Vector2 w) { return (Vector2) { (w.x-s.cam.x)*s.cams, (w.y-s.cam.y)*s.cams }; };
 Vector2 s2w(Vector2 sc) { return (Vector2) { (sc.x / s.cams) + s.cam.x, (sc.y / s.cams) + s.cam.y }; };
 
+
+void move(int id, float x, float y) {
+
+    if (!collision((Vector3) {  s.a[id].pos.x+x, s.a[id].pos.y+y, 0 }, id).block) {
+        s.a[id].pos.y += y;
+        s.a[id].pos.x += x;
+    }
+}
+
 int main(int argc, char* argv[])
 {
     //SetConfigFlags(FLAG_MSAA_4X_HINT);
@@ -413,24 +448,32 @@ int main(int argc, char* argv[])
     float tx, ty;
     reset();
 
-   struct State save; save = s;
+    struct State *save = malloc(sizeof(struct State)); *save = s;
 
     while (!WindowShouldClose())
     {
 
         s.time += GetFrameTime();
-        collisions = collision();
+        id = s.p[0].controlled;
+        s.a[id].collide = collision(s.a[id].pos, id);
+        collisions = s.a[id].collide.count;
+        for (int i = 0; i < 16; i++) { if (s.a[id].collide.list[i])
+            DrawText(TextFormat("%i", s.a[id].collide.list[i]),
+                55, 111 + i * 16, 20, MAGENTA);
+        }
+
+
         x = GetMousePosition().x; y = GetMousePosition().y;
         s.counter += 1;
-        id = s.p[0].controlled;
+
         distance = ((((s.tex[tile(s.a[id].pos)].g*1.0)+14.0)/33.0)/4.0)*s.a[id].ms/(collisions+1.0)
             * GetFrameTime();
         if (IsKeyDown(KEY_R)) { reset(); }
         if (IsKeyPressed(KEY_F)) { s.cams /= 2; }
         if (IsKeyPressed(KEY_G)) { s.cams *= 2; }
 
-        if (IsKeyPressed(KEY_C)) { s = save; }
-        if (IsKeyPressed(KEY_V)) { save = s; }
+        if (IsKeyPressed(KEY_C)) { s = *save; }
+        if (IsKeyPressed(KEY_V)) { *save = s; }
 
         if (IsKeyPressed(KEY_DELETE)) {
             for (int i = 0; i < AQ; i++) { if (s.a[i].selected) { s.a[i].free = 1; } }
@@ -463,8 +506,8 @@ int main(int argc, char* argv[])
 
         if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
             s.p[0].SB = s2w((Vector2){ x,y });
-            Vector2 SA; SA = s.p[0].SA;
-            Vector2 SB; SB = s.p[0].SB;
+            Vector2 SA = s.p[0].SA;
+            Vector2 SB = s.p[0].SB;
             for (int i = 0; i < AQ; i++) {
                 s.a[i].high = false;
                 if (CheckCollisionPointRec(
@@ -487,8 +530,7 @@ int main(int argc, char* argv[])
         if (s.p[0].is_selecting) {
             Vector2 SA; SA = w2s(s.p[0].SA);
             Vector2 SB; SB = w2s(s.p[0].SB);
-            DrawRectangle(SA.x, SA.y, 22, 22, ORANGE);
-            DrawRectangle(SB.x, SB.y, 22, 22, GREEN);
+
             DrawRectangle(
                 min(SA.x, SB.x),
                 min(SA.y, SB.y),
@@ -497,9 +539,11 @@ int main(int argc, char* argv[])
                 (Color) {
                 11, 111, 222, 222
             });
+            DrawRectangle(SA.x, SA.y, 22, 22, ORANGE);
+            DrawRectangle(SB.x, SB.y, 22, 22, GREEN);
         }
-        s.a[id].pos.y += distance*ty; 
-        s.a[id].pos.x += distance*tx; 
+
+        move(id, distance * tx, distance * ty);
 
         if  (!(tx == 0.0 && ty == 0.0)) {
             s.a[id].rot.z = Vector2Angle((Vector2) { 0, 1 }, Vector2Normalize((Vector2) { tx, ty }));
@@ -544,23 +588,13 @@ int main(int argc, char* argv[])
         for (int i = 0; i < AQ; i++) { s.a[i].pos.z = s.tex[tile(s.a[i].pos)].r; }
 
         s.mode = play;
-        for (int i = 0; i < AQ; i++) {
-            //s.a[i].high = false;
-
-            if (
-                CheckCollisionPointCircle(
-                    (Vector2) { x, y },
-                    (Vector2) { (
-                        s.a[i].pos.x-s.cam.x)*s.cams,
-                    (s.a[i].pos.y - s.cam.y)* s.cams
-            },
-                    s.a[i].scale.x*s.cams)
-                ) {
-                s.a[i].high = true;
-                DrawText(TextFormat("%i", i), 111, 111, 20, PINK);
-
-            }
-        }
+        Vector2 mv = s2w((Vector2) {x,y}); 
+        struct cres mouse_c = collision((Vector3) { mv.x, mv.y, 0 }, 0);
+        for (int i = 0; i < 16; i++) { if (mouse_c.list[i])
+        {
+            DrawText(TextFormat("%i", mouse_c.list[i]), 111, 111+i*20, 20, GREEN);
+            s.a[mouse_c.list[i]].high=1;
+        } }
 
         for (int i = 0; i < AQ; i++) { tick(i); };
 
@@ -578,24 +612,23 @@ int main(int argc, char* argv[])
 
         ClearBackground((Color){0,12,44,255});
 
-        drawUI(id, texture, collisions, distance, x, y);
         Vector2 vec =
         { (0 - s.cam.x)*s.cams, (0 - s.cam.y) * s.cams };
         Color g; g = GRAY; g.a = 55;
         DrawTextureEx(texture, vec, 0, 123 * s.cams, g);
 
-
         SetTextLineSpacing(0);
 
+        draw2();
+        draw();
+        drawUI(id, texture, collisions, distance, x, y);
         DrawText(TextFormat("%i", (int)buff_cur), 0, 400, 20, PINK);
         DrawTextEx(font, buff, (Vector2) { 0, 444 }, 40, 0, BLUE);
 
         for (int i = 0; i < 16; i++) {
-            DrawTextEx(font, s.m_inc.msg[i].character, (Vector2) { 0, 20*i }, 20, 0, GREEN);
-            ; };
-
-        draw2();
-        draw();
+            DrawTextEx(font, s.m_inc.msg[i].character, (Vector2) { 0, 20 * i }, 20, 0, GREEN);
+            ;
+        };
 
         EndDrawing();
 

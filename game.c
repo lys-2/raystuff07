@@ -2,6 +2,7 @@
 #include "raylib.h"
 #include <raymath.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #if defined(_WIN32)           
 #define NOGDI             
@@ -12,7 +13,6 @@
 
 #define AQ 4096
 #define BUFF 4096
-#define MS_BASE 300.0f
 #define max(x, y) (((x) > (y)) ? (x) : (y))
 #define min(x, y) (((x) < (y)) ? (x) : (y))
 
@@ -31,16 +31,21 @@ Vector2 SB;
 Vector2 SC;
 };
 
-enum Mode {play, input, edit};
+enum Mode {play, text, edit};
 enum Class { ELF, MELEE };
+enum Channel { world, ui };
 enum Collision {pass, overlap, block};
 struct cres { short list[16]; char count; short block; };
 
 struct Actor {
-    unsigned char name[8]; unsigned char lvl; Vector3 pos; Vector3 rot; Vector3 scale; float ms;
-    struct cres collide; unsigned char stack;
-    enum Class class; short from; short to[16]; enum Collision collision;
-     bool hidden; bool high; bool selected; bool free;
+    char name[8]; Vector3 pos; Vector3 rot; Vector3 scale; Vector3 vel; Color color;
+    struct cres collide; int bank; int social;
+    short from; short to[16]; 
+    char stack; unsigned char lvl;
+    char hp; float ms; char attack; char armor;
+    enum Collision collision:3; enum Class class:3;
+    bool hidden:1; bool high:1; bool selected:1; bool free:1;
+    bool is_hovered:1; bool is_pushed:1; bool is_character:1;
 };
 
 struct Action { char name[4]; float used; };
@@ -52,7 +57,7 @@ struct ASelect { Vector2 A; Vector2 B; short author; float time; };
 
 struct State {
 int counter; char name[32];
-struct Actor alib[16]; struct Actor a[AQ]; struct User u[55];
+struct Actor alib[16]; struct Actor a[AQ]; struct User u[9999];
 struct Player p[144];
 enum Mode mode;
 Color lc[3];
@@ -73,20 +78,16 @@ struct Mail m_inc; struct Mail m_out;
 bool is_network;
 };
 
+struct State s = {0};
 char keys[12][4] = {"W", "A", "S", "D", "E", "Q", "R"};
-
-struct State s = {
-    .alib = {
+struct Actor alib[16] = {
         {"box", 1},
         {"ball"},
         {"player", 1},
         {"camera"},
         {"light"},
+        {"bullet"},
         {"tree", 3}
-      },
-    .actions = {{"a"}, {"b"}},
-    .mode = play,
-    .cams = 1
 };
 
 SOCKET sock;
@@ -128,6 +129,7 @@ void net() {
     sock = socket(ptr->ai_family, ptr->ai_socktype,
         ptr->ai_protocol);
 
+
     connect(sock, ptr->ai_addr, (int)ptr->ai_addrlen);
     freeaddrinfo(result);
 
@@ -136,7 +138,6 @@ void net() {
 
     BOOL l = 1;
     ioctlsocket(sock, FIONBIO, (unsigned long*)&l);
-
 }
 
 void tick(short actor) { 
@@ -205,10 +206,12 @@ void turtle(char rule[16], char depth, Vector3 pos, Vector3 rot, short start) {
     }
 }
 
-static void reset() {
+static void reset(Image *image) {
 
     for (short i = 0; i < 12; i++) strcpy(s.actions[i].name, keys[i]);
+    for (short i = 0; i < 16; i++) s.alib[i] = alib[i];
 
+    
     for (short i = 0; i < AQ; i++) {
 
         int rand1 = GetRandomValue(0, 1);
@@ -220,17 +223,19 @@ static void reset() {
         s.a[i].pos.x = GetRandomValue(0, 3999);
         s.a[i].pos.y = GetRandomValue(0, 2999);
         s.a[i].scale = (Vector3){ rand2,rand3,rand2 };
-        s.a[i].ms = MS_BASE;
+        s.a[i].ms = 30.0;
         s.a[i].collision = overlap; if (GetRandomValue(0, 111) < 11) s.a[i].collision = block;
         s.a[i].lvl = s.a[i].scale.x;
         strcpy(s.a[i].name, s.alib[rand1].name);
         if (rand1) s.a[i].scale.x /= 2.0;
-        if (s.tex[tile(s.a[i].pos)].r == BLACK.r) {
+        if (s.a[tile(s.a[i].pos)].color.r == BLACK.r) {
             s.a[i].scale = (Vector3){1,1,1}; strcpy(s.a[i].name, "tree");
             //s.a[i].hidden = true;
         };
     };
     s.p[0].controlled = GetRandomValue(0, AQ); strcpy(s.a[s.p[0].controlled].name, "player");
+    s.a[s.p[0].controlled].lvl = 1; s.a[s.p[0].controlled].scale = (Vector3){1,1,1};
+    s.a[s.p[0].controlled].is_character = true;
     s.counter = 0;
     s.player = 0;
     s.time = 0;
@@ -244,6 +249,7 @@ static void reset() {
     }
 
     for (short i = 0; i < AQ; i++) { s.a[i].pos = s.points[i].pos; s.a[i].pos.y += 3; }
+    ImageClearBackground(image, BLANK);
 
     turtle("frbqqqbrlqqr", 24, s.a[s.p[0].controlled].pos, s.a[s.p[0].controlled].rot, 0);
 
@@ -277,7 +283,7 @@ void draw2() {
     for (int i = 0; i < AQ; i++)
     { 
         if (s.a[i].hidden || s.a[i].free) continue;
-        DrawPixel(880+s.a[i].pos.x/33.0, 444+s.a[i].pos.y/33.0, s.tex[i]); }
+        DrawPixel(880+s.a[i].pos.x/33.0, 444+s.a[i].pos.y/33.0, s.a[i].color); }
     for (int i = 0; i < AQ; i++)
     {
         if (s.a[i].hidden || s.a[i].free) continue;
@@ -285,13 +291,13 @@ void draw2() {
         struct Vector3 v = s.a[i].pos;
         v = Vector3RotateByAxisAngle(v, (Vector3) { 1, 0, 0 }, 3.14/3);
         v = Vector3Add(v, (Vector3) { 1111, 0, 0 });
-        DrawPixel(844 + v.x / 33.0, 400 + v.y / 33.0, s.tex[i]);
+        DrawPixel(844 + v.x / 33.0, 400 + v.y / 33.0, s.a[i].color);
     }
     for (int i = 0; i < AQ; i++)
     {
         if (s.a[i].hidden || s.a[i].free) continue;
 
-        DrawPixel(555+(8*(i%64)),  8*(i/64) , s.tex[i]);
+        DrawPixel(555+(8*(i%64)),  8*(i/64) , s.a[i].color);
     }
     DrawRectangle(880 + s.cam.x / 33, 444 + s.cam.y / 33, 999/33, 555/33, ColorAlpha(BLACK, .5));
 
@@ -314,7 +320,7 @@ static void draw()
         if (x > 1111 || x < -100) continue;
         if (y > 666 || y < -100) continue;
 
-        Color c = s.tex[i]; c.a = 88;  
+        Color c = s.a[i].color; c.a = 111;  
         if (s.a[i].high) { c.g = 255; c.a = 222; }
         if (s.a[i].selected) { c.b = 255; c.a = 222; }
         if (s.a[i].collision == 2) { c = GRAY; }
@@ -423,6 +429,10 @@ void move(int id, float x, float y) {
 
 int main(int argc, char* argv[])
 {
+
+    FILE* fp; 
+    fp = fopen("output.txt", "w");
+
     //SetConfigFlags(FLAG_MSAA_4X_HINT);
     short i, x, y, r, id, collisions; float distance;
     SetTargetFPS(2222);
@@ -441,14 +451,17 @@ int main(int argc, char* argv[])
     Image image = LoadImage("resources/tex.png");
     Texture2D texture = LoadTextureFromImage(image);
     Color* colors = LoadImageColors(image);
-    for (int i = 0; i < 64 * 64; i++) { s.tex[i] = colors[i]; }
+    for (int i = 0; i < 64 * 64; i++) { s.tex[i] = colors[i]; s.a[i].color = colors[i]; }
     for (int i = 0; i < 4096; i++) { s.rec[i] = sin(i/16.0)*126.0; }
     UnloadImage(image); UnloadImageColors(colors);
 
     float tx, ty;
-    reset();
 
     struct State *save = malloc(sizeof(struct State)); *save = s;
+
+    Image image2 = GenImageColor(512, 256, GREEN);
+    Texture2D tex2 = LoadTextureFromImage(image2);
+    reset(&image2);
 
     while (!WindowShouldClose())
     {
@@ -468,7 +481,7 @@ int main(int argc, char* argv[])
 
         distance = ((((s.tex[tile(s.a[id].pos)].g*1.0)+14.0)/33.0)/4.0)*s.a[id].ms/(collisions+1.0)
             * GetFrameTime();
-        if (IsKeyDown(KEY_R)) { reset(); }
+        if (IsKeyDown(KEY_R)) { reset(&image2); }
         if (IsKeyPressed(KEY_F)) { s.cams /= 2; }
         if (IsKeyPressed(KEY_G)) { s.cams *= 2; }
 
@@ -619,6 +632,27 @@ int main(int argc, char* argv[])
 
         SetTextLineSpacing(0);
 
+        ImageDrawPixel(&image2, GetRandomValue(0, 512), GetRandomValue(0, 256), BLACK);
+        //ImageDrawCircleLines(&image2, GetRandomValue(0,512), GetRandomValue(0, 256),
+        //    GetRandomValue(0, 44), ColorFromHSV(GetRandomValue(0, 360), 1.0, 1.0));
+        Vector2 v2;
+        for (int i = 0; i < AQ; i++) {
+            if (!s.a[i].free)
+            v2 = Vector2Rotate((Vector2) {
+                s.a[i].pos.x - s.a[id].pos.x, s.a[i].pos.y - s.a[id].pos.y
+            }, -s.a[id].rot.z);
+            ImageDrawCircleLines(&image2, v2.x, v2.y,
+                s.a[i].scale.x, s.a[i].color, 1.0, 1.0);
+        }
+        if (s.counter%4==0) {
+            Color* c = LoadImageColors(image2);
+            UpdateTexture(tex2, c);
+            UnloadImageColors(c);
+        }
+        //if (s.counter % 444 == 0) ImageClearBackground(&image2, BLANK);
+        ImageClearBackground(&image2, BLANK);
+
+        DrawTexture(tex2, 0, 0, WHITE);
         draw2();
         draw();
         drawUI(id, texture, collisions, distance, x, y);

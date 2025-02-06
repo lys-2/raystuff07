@@ -4,7 +4,7 @@ struct Tag { char name[8]; char attr;  float timer; };
 struct Place { char name[8]; float x; float y; char route[5]; };
 struct Character {
     char name[8]; char place;
-    char routes[4]; char routes_len; char bar[16][16]; char bar_cur;
+    char routes[4]; char routes_len; char bar[16][16];
     char stack; char age; char gen; char lvl;
 };
 struct Item {
@@ -17,8 +17,9 @@ struct G2 {
     struct Item items[64]; struct Place map[16];
 };
 struct G2 game = {
-.chars = {{"Bob", 1, .lvl = 4}, {"Cat", 2}, {"Vermin", 7, 3},
-    {"NPC", 8, 100}, {"Dragon", 12, .lvl = 12}},
+.chars = {{"Bob", 1, .lvl = 4,
+.bar = {"look", "move", "use", "talk", "skip", "magic", "exit"}},
+    {"Cat", 2}, {"Vermin", 7, 3}, {"NPC", 8, 100}, {"Dragon", 12, .lvl = 12}},
 .items = {{"Bottle", 9}, {"Stick", 3}, {"Base set", 10}, {"Wood set", 5}},
 .map = {
 {"Room", 44, 55, .route = {2}},
@@ -36,6 +37,8 @@ struct G2 game = {
 }
 };
 
+void process() {}
+
 int main(void)
 {
     InitWindow(555, 333, "sn08");
@@ -46,6 +49,8 @@ int main(void)
 
     int k = 0;
     int c = 0;
+
+
 
     while (!WindowShouldClose())
     {
@@ -65,39 +70,57 @@ int main(void)
         DrawText(TextFormat("%i", game.frame), 2, 2, 10, GRAY);
 
         for (int place = 0; place < 16; place++) {
-            for (int route = 0; route < 4; route++) {
-                if (game.map[place].route[route]) {
-                    DrawLine(
-                        game.map[place].x,
-                        game.map[place].y,
-                        game.map[game.map[place].route[route] - 1].x,
-                        game.map[game.map[place].route[route] - 1].y,
-                        BLACK);
+            if (g->map[place].x) {
+                for (int route = 0; route < 4; route++) {
+                    if (game.map[place].route[route]) {
+                        DrawLine(
+                            game.map[place].x,
+                            game.map[place].y,
+                            game.map[game.map[place].route[route] - 1].x,
+                            game.map[game.map[place].route[route] - 1].y,
+                            BLACK);
+                    }
+                    DrawText(TextFormat("%s, %i", game.map[place].name, place),
+                        game.map[place].x, game.map[place].y, 15, BLUE);
+                    DrawRectangle(500, 12 * place, 10, 10, BLUE);
+                    DrawText(TextFormat("%c", game.map[place].name[0]),
+                        500, 12 * place, 10, WHITE);
                 }
-                DrawText(TextFormat("%s, %i", game.map[place].name, place),
-                    game.map[place].x, game.map[place].y, 15, BLUE);
+            }
+        }
+        for (int character = 0; character < 64; character++) {
+            if (g->chars[character].name[0]) {
+                DrawText(TextFormat("%c, %i", game.chars[character].name[0], character),
+                    game.map[game.chars[character].place - 1].x - 10,
+                    game.map[game.chars[character].place - 1].y - 10,
+                    20, RED);
+                DrawRectangle(488, (12 * character) + 4, 10, 10, RED);
+                DrawText(TextFormat("%c", g->chars[character].name[0]),
+                    488, (12 * character) + 4, 10, WHITE);
             }
         }
 
-        for (int character = 0; character < 64; character++) {
-            DrawText(TextFormat("%c, %i", game.chars[character].name[0], character),
-                game.map[game.chars[character].place - 1].x - 10,
-                game.map[game.chars[character].place - 1].y - 10,
-                20, RED);
-        }
-
         for (int item = 0; item < 64; item++) {
-            DrawText(TextFormat("%c, %i", game.items[item].name[0], item),
-                game.map[game.items[item].place - 1].x + 10,
-                game.map[game.items[item].place - 1].y + 10,
-                20, BLACK);
+            if (g->items[item].name[0]) {
+
+                DrawText(TextFormat("%c, %i", game.items[item].name[0], item),
+                    game.map[game.items[item].place - 1].x + 10,
+                    game.map[game.items[item].place - 1].y + 10,
+                    20, DARKGREEN);
+                DrawRectangle(476, (12 * item) + 6, 10, 10, DARKGREEN);
+                DrawText(TextFormat("%c", g->items[item].name[0]),
+                    476, (12 * item) + 6, 10, WHITE);
+            }
         }
 
         for (int bar = 0; bar < 24; bar++) {
-            DrawRectangle(555 - 30, bar * 10, 22, 8, (Color) { 0, 22, (mc->bar_cur == bar) * 222, 255 });
-        };
-        if (IsKeyPressed(KEY_DOWN)) { mc->bar_cur += 1; }
-        if (IsKeyPressed(KEY_UP)) { mc->bar_cur -= 1; }
+            if (mc->bar[bar][0]) {
+                DrawRectangle(555 - 30, bar * 10, 22, 8, (Color) { 0, 22, 222, 255 });
+                DrawText(TextFormat("%s", mc->bar[bar]), 555 - 30, bar * 10, 10, WHITE);
+            };
+            if (IsKeyPressed(KEY_DOWN)) {}
+            if (IsKeyPressed(KEY_UP)) {}
+        }
 
         int ch = GetCharPressed(); if (ch) {
             k = ch; if (g->buff_cur < 63)
@@ -122,7 +145,7 @@ int main(void)
 
         for (int line = 1; line < 4; line++) {
             DrawRectangle(160, 280 - (line * 16),
-                TextLength(TextFormat("%s", g->log[g->log_cur - line])) * 5, 16, BLACK);
+                MeasureText(TextFormat("%s", g->log[g->log_cur - line]), 10), 16, BLACK);
             DrawText(TextFormat("%s", g->log[g->log_cur - line]), 160, 280 - (line * 16), 10, GRAY);
 
         }

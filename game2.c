@@ -16,6 +16,8 @@ struct Action_lib { char name[8]; char desc[22]; float cooldown_base; };
 struct Challenge_lib { char name[12]; char desc[22]; };
 struct Event { char sender;  char str[64]; };
 
+struct User {char name[16]};
+
 struct Character {
     char name[8]; char place; char stack;
     char bar[16][16]; struct Type select;

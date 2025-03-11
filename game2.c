@@ -27,7 +27,7 @@ struct Point { Vector3 pos; };
 struct Line2 { Vector3 a; Vector3 b; };
 struct Triangle { Vector3 a; Vector3 b; Vector3 c; };
 struct MeshT { char name[16]; struct Triangle t[64]; char triangle_count; };
-struct MeshInstT { char lib_id;  Vector3 pos; Vector3 rot; };
+struct MeshInstT { char lib_id;  Vector3 pos; float scale; float rot; bool is_taken; };
 
 struct Character {
     char name[8]; char place; char stack;
@@ -104,7 +104,8 @@ struct G2 game = {
 },
 
 .scene = {
-    {1, {10.0,10.0,0.0}},
+    {1, {40.0,40.0,0.0}, .scale = 1.0, .is_taken = true },
+
 
 },
 
@@ -186,9 +187,13 @@ void say(char id, char msg[64]) {
 }
 
 void move() {}
-void spawn_mesh(struct G2* g, char id, char slot, Vector3 v) {
+void spawn_mesh(struct G2* g, char id, char slot, Vector3 v, float scale, float rot) {
     g->scene[slot].lib_id = id;
     memcpy(&g->scene[slot].pos, &v, sizeof(struct Vector3));
+    g->scene[slot].scale = scale;
+    g->scene[slot].rot = rot;
+    g->scene[slot].is_taken = true;
+
 }
 void spawn(struct G2* g, enum TYPES type, char lib_id, char place) {
     char i;
@@ -204,36 +209,51 @@ float lerp(float a, float b, float f) { return a * (1.0 - f) + (b * f); }
 int dist(Vector2 v) { 111; };
 Vector2 transform(Vector2 a, Vector2 b) { (Vector2) { a.x + b.x, a.y + b.y }; };
 
-struct MeshT transform_m(struct MeshT m, Vector2 t) {
+struct MeshT transform_m(struct MeshT m, Vector2 t, float scale, float rot) {
     struct MeshT mt; memcpy(&mt, &m, sizeof(struct MeshT));
     for (int tri = 0; tri < m.triangle_count; tri++) {
-        mt.t[tri].a.x += t.x;
-        mt.t[tri].b.x += t.x;
-        mt.t[tri].c.x += t.x;
-        mt.t[tri].a.y += t.y;
-        mt.t[tri].b.y += t.y;
-        mt.t[tri].c.y += t.y;
+
+        mt.t[tri].a.x = mt.t[tri].a.x * cos(rot) - mt.t[tri].a.y * sin(rot);
+        mt.t[tri].b.x = mt.t[tri].b.x * cos(rot) - mt.t[tri].b.y * sin(rot);
+        mt.t[tri].c.x = mt.t[tri].c.x * cos(rot) - mt.t[tri].c.y * sin(rot);
+        mt.t[tri].a.y = mt.t[tri].a.x * sin(rot) + mt.t[tri].a.y * cos(rot);
+        mt.t[tri].b.y = mt.t[tri].b.x * sin(rot) + mt.t[tri].b.y * cos(rot);
+        mt.t[tri].c.y = mt.t[tri].c.x * sin(rot) + mt.t[tri].c.y * cos(rot);
+        mt.t[tri].a.x += t.x; mt.t[tri].a.x *= scale;
+        mt.t[tri].b.x += t.x; mt.t[tri].b.x *= scale;
+        mt.t[tri].c.x += t.x; mt.t[tri].c.x *= scale;
+        mt.t[tri].a.y += t.y; mt.t[tri].a.y *= scale;
+        mt.t[tri].b.y += t.y; mt.t[tri].b.y *= scale;
+        mt.t[tri].c.y += t.y; mt.t[tri].c.y *= scale;
     }
     return mt;
 }
 
+int pcount = 0;
 void drawpoint(Vector2 v) {
     if (v.x > 0 && v.x < 256 && v.y > 0 && v.y < 128)
         screen[GetRandomValue(-1, 2) + ((int)v.x * 3) + (int)v.y * 256 * 3] = 255;
+
+    // screen[3+((int)v.x*3)+(int)v.y*256*3] = 255;
+    pcount += 1;
 }
 void drawline(float f, Vector2 a, Vector2 b) {
-    for (int pixel = 0; pixel < (int)f + 1; pixel++) {
-        drawpoint((Vector2) { lerp(a.x, b.x, pixel / f), lerp(a.y, b.y, pixel / f) });
+    for (int pixel = 0; pixel < 16; pixel++) {
+        drawpoint((Vector2) { lerp(a.x, b.x, pixel / 16.0), lerp(a.y, b.y, pixel / 16.0) });
     }
 }
 void drawtri(float f, Vector2 a, Vector2 b, Vector2 c) {
-    for (int pixel = 0; pixel < (int)f; pixel++) {
+    for (int pixel = 0; pixel < (int)f + 1; pixel++) {
         drawline(f, a, (Vector2) { lerp(b.x, c.x, pixel / f), lerp(b.y, c.y, pixel / f) });
     }
+    drawpoint(a);
+    drawpoint(b);
+    drawpoint(c);
+
 }
 void drawmesh(struct MeshT mesh, float t) {
     for (int tri = 0; tri < mesh.triangle_count; tri++) {
-        drawtri(t / 2,
+        drawtri(t / 1.0,
             (Vector2) {
             mesh.t[tri].a.x, mesh.t[tri].a.y
         },
@@ -348,11 +368,11 @@ bool event_process(struct G2* g, enum EVENT event, enum TYPES type, char attr) {
 
 
 void init(struct G2* g) {
-    for (int mesh = 0; mesh < 555; mesh++) {
+    for (int mesh = 0; mesh < 777; mesh++) {
         spawn_mesh(g, GetRandomValue(0, 1), 5 + mesh,
             (Vector3) {
             GetRandomValue(0, 256), GetRandomValue(0, 128), 111
-        });
+        }, GetRandomValue(0, 111) / 111.0, GetRandomValue(0, 111) / 111.0);
     }
 }
 
@@ -364,11 +384,13 @@ int main(void)
     str = LoadAudioStream(44100, 16, 1);
     SetAudioStreamVolume(str, 0.5);
 
-    InitWindow(790, 333, "sn08");
-    SetTargetFPS(175);
+    InitWindow(790, 535, "sn08");
+    SetTargetFPS(111);
 
     Image im = LoadImage("resources/art.png");
+    Image im2 = LoadImage("resources/art2.png");
     Texture2D art = LoadTextureFromImage(im);
+    Texture2D art2 = LoadTextureFromImage(im2);
 
     struct Character* mc = &game.chars[0];
     struct G2* g = &game;
@@ -387,7 +409,7 @@ int main(void)
 
     while (!WindowShouldClose())
     {
-        if (IsKeyPressed(KEY_R)) { memcpy(&game, &game2, sizeof(struct G2)); init(g); }
+        if (IsKeyDown(KEY_R)) { memcpy(&game, &game2, sizeof(struct G2)); init(g); }
 
         if (g->frame == 1) memcpy(&game2, &game, sizeof(struct G2));
 
@@ -417,15 +439,17 @@ int main(void)
         }
 
         struct MeshT mt = { 0 };
-        for (int mesh = 0; mesh < 1111; mesh++) {
+        pcount = 0;
+        for (int mesh = 0; mesh < 777; mesh++) {
             struct MeshT mt; memcpy(&mt, &g->mesh_lib[g->scene[mesh].lib_id], sizeof(struct MeshT));
-
-            drawmesh(transform_m(mt,
-                (Vector2) {
-                g->scene[mesh].pos.x, g->scene[mesh].pos.y
-            }),
-                ((sin(g->time / 1.0) + 1.0)) * 30.0);
-
+            if (g->scene[mesh].is_taken) {
+                drawmesh(transform_m(mt,
+                    (Vector2) {
+                    g->scene[mesh].pos.x, g->scene[mesh].pos.y
+                }, g->scene[mesh].scale,
+                        g->scene[mesh].rot),
+                    ((sin(g->time / 1.0) + 1.0)) * 30.0);
+            }
         }
 
 
@@ -434,6 +458,7 @@ int main(void)
         DrawTextureEx(tex, (Vector2) { 0, 0 }, g->time / 7, 8, (Color) { 0, 111, 0, 22 });
         DrawTexture(tex, 300, 200, WHITE);
         DrawTextureEx(art, (Vector2) { 555, 0 }, 0, .87, WHITE);
+        DrawTextureEx(art2, (Vector2) { 0, 328 }, 0, 1, GRAY);
 
 
         gen_buttons(g);
@@ -517,6 +542,7 @@ int main(void)
         };
 
         DrawText(TextFormat("%i %i", g->frame, (int)floor(g->time)), 2, 2, 10, GRAY);
+        DrawText(TextFormat("%i ", pcount), 244, 320, 10, WHITE);
 
         for (int place = 0; place < 16; place++) {
             if (g->map[place].x) {

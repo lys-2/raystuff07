@@ -1,33 +1,39 @@
 #include "raylib.h"
 #include <stdio.h>
+#include <string.h> 
 #include <stdlib.h>
-#include <string.h>
 
 enum TYPES { CHARACTER, ITEM, PLACE, ACTION, CHALLENGE };
-enum EVENT { INTERACT, MOVE, SAY };
+enum EVENT { INTERACT, MOVE, SAY, SPAWN, BEEP };
 enum CHALLENGE { NA, AVAILABLE, PROGRESS, FAILED, COMPLETE };
 enum ANIMATION { IDLE, LOOKAROUND, WALK, RUN };
-struct Type { enum TYPES name; unsigned char id; bool free; };
+struct Type { enum TYPES name;  char id; bool free; };
 struct Tag { char name[8]; char attr;  float timer; };
 struct Line { char line[100]; };
 struct Button {
-    char name[10]; struct Type type; float x;
+    char name[16]; struct Type type; float x;
     float y; float w; float h; enum color color; bool hi; bool free;
 };
 struct Slider { char name[8]; float value; char attr; float x; float y; float w; float h; bool hi; };
 struct Place { char name[12]; float x; float y; char route[6]; char rlen; };
-struct Action_lib { char name[8]; char desc[22]; float cooldown_base; };
-struct Challenge_lib { char name[12]; char desc[22]; };
-struct Event { char sender;  char str[64]; };
-struct Event_type1 { char sender;  char str[64]; };
-struct Event_type2 { char sender;  char str[64]; };
+struct Action_lib { char name[12]; char desc[22]; float cooldown_base; };
+struct Challenge_lib { char name[16]; char desc[22]; };
+struct Event { enum EVENT type;  char sender; char attr1; char attr2; char str[64]; };
+struct TEvent { struct Event event; float time; };
+struct Clip { struct Event events[16]; };
 struct Progress { enum CHALLENGE challenge[8]; char percentage; };
+
+struct Point { Vector3 pos; };
+struct Line2 { Vector3 a; Vector3 b; };
+struct Triangle { Vector3 a; Vector3 b; Vector3 c; };
+struct MeshT { char name[16]; struct Triangle t[64]; char triangle_count; };
+struct MeshInstT { char lib_id;  Vector3 pos; Vector3 rot; };
 
 struct Character {
     char name[8]; char place; char stack;
     char bar[16][16]; struct Type select;
     char age; char gen; char lvl; char hp; char hp_base; char ad; char id; long balance;
-    bool ai_controlled; bool is_good;
+    bool roam; bool is_good; bool free;
     bool map_visit[64];
 };
 
@@ -37,18 +43,20 @@ struct Character_lib {
 };
 
 struct Item {
-    char name[11]; char place; char stack; char heal; struct Tag tags[3];
+    char name[16]; char place; char stack; char heal; struct Tag tags[3];
     char attack; char armor; char weight;
 };
 
 struct G2 {
 
-    struct Progress progress;
-
-    struct Mesh mesh_lib[8];
+    struct MeshT mesh_lib[4];
+    struct MeshInstT scene[1111];
     struct Character_lib char_lib[8];
     struct Action_lib action_lib[16];
-    struct Challenge_lib challenge_lib[8];
+    struct Challenge_lib challenge_lib[4];
+
+    struct Clip clips[4];
+    float bpm;
 
     struct Place place_lib[8];
     struct Item item_lib[8];
@@ -59,9 +67,10 @@ struct G2 {
     char buffer[111]; char buff_cur;
     struct Item items[64]; struct Place map[64];
 };
-struct Character* chars2[64];
 
 struct G2 game = {
+    .log = {{.sender = 0, .str = "Hello!"}},
+    .log_cur = 0,
     .action_lib = {
         {"look", "Look around"},
         {"move", ""},
@@ -74,10 +83,34 @@ struct G2 game = {
 },
 
     .challenge_lib = {
-        "Move around",
-        "Equipment",
-        "Villager",
-        "Dragon",
+        {"Move around"},
+        {"Equipment"},
+        {"Villager"},
+        {"Dragon"},
+},
+
+.mesh_lib = {
+    {"tri", .t = {
+
+        {{0,10,0.0}, {10.0,-10.0,0.0}, { -10.0,-10.0,0.0 }} ,
+},
+.triangle_count = 1},
+    {"sq", .t = {
+        {{-10.0,-10.0,0.0}, {-10.0,10.0,0.0}, { 10.0,10.0,0.0 }} ,
+        {{-10.0,-10.0,0.0}, {10.0,10.0,0.0}, { 10.0,-10.0,0.0 }} ,
+
+},
+.triangle_count = 2},
+},
+
+.scene = {
+    {1, {10.0,10.0,0.0}},
+
+},
+
+.item_lib = {
+        {"Carrot", 0},
+        {"Ball"}
 },
 
     .char_lib = {
@@ -96,7 +129,7 @@ struct G2 game = {
 },
 .chars = {
     { "Bob", .place = 0, .stack = 1, .lvl = 1, .id = 2, .hp = 10, .ad = 1, .hp_base = 10},
-    { "Cat", 2, 1, .id = 0, .ai_controlled = true },
+    { "Cat", 2, 1, .id = 0, .roam = true },
     { "Cat", 3, 1, .id = 0},
     {"Vermin", 6, 3, .id = 1},
     {"Vermin", 5, 13, .id = 1},
@@ -129,9 +162,10 @@ struct G2 game = {
 }
 };
 
-struct G2 reset; memcpy(reset, game);
+struct G2 game2;
 
 char screen[256 * 128 * 3];
+
 Image img
 = {
    .data = screen,
@@ -143,44 +177,85 @@ Image img
 
 void say(char id, char msg[64]) {
     if (msg[0] != '\0') {
-        strcpy(game.log[game.log_cur].str, msg); game.log[game.log_cur % 16].sender = id; game.log_cur += 1;
+        strcpy(game.log[game.log_cur].str, msg);
+        game.log[game.log_cur % 16].sender = id;
+        game.log_cur += 1;
         game.log_cur %= 16;
         ;
     }
 }
 
 void move() {}
+void spawn_mesh(struct G2* g, char id, char slot, Vector3 v) {
+    g->scene[slot].lib_id = id;
+    memcpy(&g->scene[slot].pos, &v, sizeof(struct Vector3));
+}
+void spawn(struct G2* g, enum TYPES type, char lib_id, char place) {
+    char i;
+    switch (type) {
+    case ITEM:
+        i = GetRandomValue(0, 63);
+        memcpy(&g->items[i], &g->item_lib[lib_id], sizeof(struct Item));
+        g->items[i].place = place;
+    }
+}
 
-void drawpoint(Vector3 v) { screen[(int)v.x] = 255; }
-void drawline() {}
-void drawtri() {}
+float lerp(float a, float b, float f) { return a * (1.0 - f) + (b * f); }
+int dist(Vector2 v) { 111; };
+Vector2 transform(Vector2 a, Vector2 b) { (Vector2) { a.x + b.x, a.y + b.y }; };
+
+struct MeshT transform_m(struct MeshT m, Vector2 t) {
+    struct MeshT mt; memcpy(&mt, &m, sizeof(struct MeshT));
+    for (int tri = 0; tri < m.triangle_count; tri++) {
+        mt.t[tri].a.x += t.x;
+        mt.t[tri].b.x += t.x;
+        mt.t[tri].c.x += t.x;
+        mt.t[tri].a.y += t.y;
+        mt.t[tri].b.y += t.y;
+        mt.t[tri].c.y += t.y;
+    }
+    return mt;
+}
+
+void drawpoint(Vector2 v) {
+    if (v.x > 0 && v.x < 256 && v.y > 0 && v.y < 128)
+        screen[GetRandomValue(-1, 2) + ((int)v.x * 3) + (int)v.y * 256 * 3] = 255;
+}
+void drawline(float f, Vector2 a, Vector2 b) {
+    for (int pixel = 0; pixel < (int)f + 1; pixel++) {
+        drawpoint((Vector2) { lerp(a.x, b.x, pixel / f), lerp(a.y, b.y, pixel / f) });
+    }
+}
+void drawtri(float f, Vector2 a, Vector2 b, Vector2 c) {
+    for (int pixel = 0; pixel < (int)f; pixel++) {
+        drawline(f, a, (Vector2) { lerp(b.x, c.x, pixel / f), lerp(b.y, c.y, pixel / f) });
+    }
+}
+void drawmesh(struct MeshT mesh, float t) {
+    for (int tri = 0; tri < mesh.triangle_count; tri++) {
+        drawtri(t / 2,
+            (Vector2) {
+            mesh.t[tri].a.x, mesh.t[tri].a.y
+        },
+            (Vector2) {
+            mesh.t[tri].b.x, mesh.t[tri].b.y
+        },
+            (Vector2) {
+            mesh.t[tri].c.x, mesh.t[tri].c.y
+        }
+        );
+    }
+}
 
 int map() {}
 
-bool binary_process() {}
-bool text_process() {
-    strtok("q w w", " ");
-}
-bool event_process() {}
-
-int main(void)
-{
-
-    InitWindow(790, 333, "sn08");
-    SetTargetFPS(75);
-
-    Image im = LoadImage("resources/art.png");
-    Texture2D art = LoadTextureFromImage(im);
-
-    int k = 0;
-    int c = 0;
-
-    struct Character* mc = &game.chars[0];
-    struct G2* g = &game;
-    Texture2D tex = LoadTextureFromImage(img);
+int gen_buttons(struct G2* g) {
 
     struct Button* b;
 
+    for (short button = 0; button < 444; button++) {
+        g->buttons[button].name[0] = '\0';
+    }
 
     for (short character = 0; character < 64; character++) {
 
@@ -224,8 +299,8 @@ int main(void)
 
     }
 
-    for (int challenge = 0; challenge < 8; challenge++) {
-        b = &g->buttons[challenge + 200];
+    for (char challenge = 0; challenge < 4; challenge++) {
+        b = &g->buttons[challenge + 244];
         b->x = 400 + ((challenge % 8) * 8);
         b->y = 0 + ((challenge / 8) * 8);
         b->h = 10;
@@ -237,6 +312,68 @@ int main(void)
     }
 
 
+    for (short c = 32; c < 128; c++) {
+
+        b = &g->buttons[c + 400];
+        b->x = 424 + ((c % 16) * 8);
+        b->y = 133 + ((c / 16) * 8);
+        b->h = 8;
+        b->w = 8;
+        b->type.id = c;
+        b->type.name = CHALLENGE;
+        b->name[0] = GetRandomValue(32, 128);
+        g->button_cur += 1;
+
+    }
+
+
+}
+
+bool binary_process() {}
+bool text_process() {
+
+}
+bool event_process(struct G2* g, enum EVENT event, enum TYPES type, char attr) {
+    switch (event)
+    {
+    case INTERACT: {
+
+        say(0, TextFormat("%s %i %i", "INT", type, attr));
+    switch (type) { case PLACE: { g->chars[0].place = attr; } }
+
+    }
+    }
+
+}
+
+
+void init(struct G2* g) {
+    for (int mesh = 0; mesh < 555; mesh++) {
+        spawn_mesh(g, GetRandomValue(0, 1), 5 + mesh,
+            (Vector3) {
+            GetRandomValue(0, 256), GetRandomValue(0, 128), 111
+        });
+    }
+}
+
+int main(void)
+{
+
+    InitAudioDevice();
+    AudioStream str;
+    str = LoadAudioStream(44100, 16, 1);
+    SetAudioStreamVolume(str, 0.5);
+
+    InitWindow(790, 333, "sn08");
+    SetTargetFPS(175);
+
+    Image im = LoadImage("resources/art.png");
+    Texture2D art = LoadTextureFromImage(im);
+
+    struct Character* mc = &game.chars[0];
+    struct G2* g = &game;
+    Texture2D tex = LoadTextureFromImage(img);
+
     FILE* fptr;
 
     fptr = fopen("resources/data.txt", "w");
@@ -246,47 +383,67 @@ int main(void)
     // Close the file
     fclose(fptr);
 
+    init(g);
+
     while (!WindowShouldClose())
     {
+        if (IsKeyPressed(KEY_R)) { memcpy(&game, &game2, sizeof(struct G2)); init(g); }
+
+        if (g->frame == 1) memcpy(&game2, &game, sizeof(struct G2));
+
+
+        if (IsAudioStreamProcessed(str)) {
+            UpdateAudioStream(str,
+                g,
+                4096);
+        };
+        if (!IsAudioStreamPlaying(str) & IsAudioStreamReady(str)) { PlayAudioStream(str); }
 
         BeginDrawing();
         ClearBackground(LIGHTGRAY);
+        for (int pixel = 0; pixel < 256 * 128 * 3; pixel++) { screen[pixel] = 111; }
 
-        if (g->frame % 24 == 2) {
-            for (int pixel = 1; pixel < 256 * 128 * 3; pixel++) {
-                screen[pixel] = g->frame * sin(pixel / 124.0);
+        if (g->frame % 11 == 2) {
+            // for (int pixel = 0; pixel < 256 * 128 * 3; pixel++) { screen[pixel] = 0; }
+
+            for (int pixel = 0; pixel < 256 * 128 * 3; pixel++) {
+                screen[2 + pixel - pixel % 3] = g->frame * sin(pixel / 111.0);
             }
         }
         for (int pixel = 2; pixel < 11; pixel++)
         {
-            drawpoint((Vector3) { GetRandomValue(1, 78787), 2.0, 3.0 });
+            drawpoint((Vector2) { GetRandomValue(1, 256), GetRandomValue(1, 128) });
 
         }
-        UpdateTexture(tex, screen);
 
+        struct MeshT mt = { 0 };
+        for (int mesh = 0; mesh < 1111; mesh++) {
+            struct MeshT mt; memcpy(&mt, &g->mesh_lib[g->scene[mesh].lib_id], sizeof(struct MeshT));
+
+            drawmesh(transform_m(mt,
+                (Vector2) {
+                g->scene[mesh].pos.x, g->scene[mesh].pos.y
+            }),
+                ((sin(g->time / 1.0) + 1.0)) * 30.0);
+
+        }
+
+
+        UpdateTexture(tex, screen);
+        DrawTextureEx(tex, (Vector2) { 0, 0 }, g->time / 1111.0, 4, (Color) { 0, 111, 111, 44 });
+        DrawTextureEx(tex, (Vector2) { 0, 0 }, g->time / 7, 8, (Color) { 0, 111, 0, 22 });
         DrawTexture(tex, 300, 200, WHITE);
         DrawTextureEx(art, (Vector2) { 555, 0 }, 0, .87, WHITE);
 
 
+        gen_buttons(g);
+
         g->frame += 1;
         g->time += GetFrameTime();
 
-
-        for (short c = 32; c < 128; c++) {
-
-            b = &g->buttons[c + 400];
-            b->x = 424 + ((c % 16) * 8);
-            b->y = 133 + ((c / 16) * 8);
-            b->h = 8;
-            b->w = 8;
-            b->type.id = c;
-            b->type.name = CHALLENGE;
-            b->name[0] = GetRandomValue(32, 128);
-            g->button_cur += 1;
-
-        }
-
         struct Rectangle rec;
+        struct Button* b;
+
         g->button_hovered = -1;
         mc->select.free = true;
         for (int button = 0; button < 555; button++) {
@@ -311,7 +468,7 @@ int main(void)
 
         for (int bar = 0; bar < 8; bar++) {
             if (g->action_lib[bar].name[0]) {
-                DrawRectangle(555 - 30, bar * 10, 32, 8, (Color) { 0, 22, 222, 255 });
+                DrawRectangle(555 - 30, bar * 10, 32, 8, (Color) { 0, 111, 111, 111 });
                 DrawText(TextFormat("%s", g->action_lib[bar]), 555 - 30, bar * 10, 10, WHITE);
             };
             if (IsKeyPressed(KEY_DOWN)) {}
@@ -354,7 +511,7 @@ int main(void)
 
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             if (!mc->select.free) {
-                say(0, TextFormat("%s %i %i", "INT", mc->select.name, mc->select.id));
+                event_process(g, INTERACT, mc->select.name, mc->select.id);
 
             }
         };
@@ -387,17 +544,19 @@ int main(void)
             if (g->chars[character].name[0]) {
 
 
-                if (g->chars[character].ai_controlled) {
+                if (g->chars[character].roam) {
                     if (GetRandomValue(1, 1111) < 22) {
                         g->chars[character].place =
                             g->map[g->chars[character].place].route[
                                 GetRandomValue(0, g->map[g->chars[character].place].rlen)];
                     }
                 }
-                if (GetRandomValue(1, 111) < 2) say(character,
-                    g->char_lib[g->chars[character].id].talk[
-                        GetRandomValue(0, g->char_lib[g->chars[character].id].talk_len)
-                    ]);
+                if (GetRandomValue(1, 111) < 2)
+
+                    say(character,
+                        g->char_lib[g->chars[character].id].talk[
+                            GetRandomValue(0, g->char_lib[g->chars[character].id].talk_len)
+                        ]);
 
                 DrawText(TextFormat("%c", g->chars[character].name[0]),
                     g->map[g->chars[character].place].x - 10,
@@ -432,7 +591,7 @@ int main(void)
         }
 
 
-
+        int c, k;
         int ch = GetCharPressed(); if (ch) {
             k = ch; if (g->buff_cur < 63)
             {
@@ -449,7 +608,7 @@ int main(void)
             g->buff_cur = 0; g->buffer[0] = '\0';
         }
 
-        if (IsKeyPressed(KEY_R)) { game.frame = 0; }
+        if (IsKeyPressed(KEY_S)) { spawn(g, ITEM, GetRandomValue(0, 1), GetRandomValue(0, 12)); }
 
         DrawText(TextFormat("l%i, h%i/%i, a%i, %s",
             mc->lvl, mc->hp, mc->hp_base, mc->ad, g->map[mc->place].name), 12, 12, 20, BLACK);

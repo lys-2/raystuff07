@@ -4,11 +4,12 @@
 #include <stdlib.h>
 
 enum TYPES { CHARACTER, ITEM, PLACE, ACTION, CHALLENGE };
-enum EVENT { INTERACT, MOVE, SAY, SPAWN, BEEP };
+enum EVENT { INTERACT, MOVE, SAY, SPAWN, BEEP, PLAY };
 enum CHALLENGE { NA, AVAILABLE, PROGRESS, FAILED, COMPLETE };
-enum ANIMATION { IDLE, LOOKAROUND, WALK, RUN };
+enum ANIMATION { IDLE, LOOK, WALK, RUN };
 struct Type { enum TYPES name;  char id; bool free; };
 struct Tag { char name[8]; char attr;  float timer; };
+struct Attach { enum TYPES type; };
 struct Line { char line[100]; };
 struct Button {
     char name[16]; struct Type type; float x;
@@ -20,7 +21,7 @@ struct Action_lib { char name[12]; char desc[22]; float cooldown_base; };
 struct Challenge_lib { char name[16]; char desc[22]; };
 struct Event { enum EVENT type;  char sender; char attr1; char attr2; char str[64]; };
 struct TEvent { struct Event event; float time; };
-struct Clip { struct Event events[16]; };
+struct Clip { struct TEvent events[16]; char count; };
 struct Progress { enum CHALLENGE challenge[8]; char percentage; };
 
 struct Point { Vector3 pos; };
@@ -29,11 +30,16 @@ struct Triangle { Vector3 a; Vector3 b; Vector3 c; };
 struct MeshT { char name[16]; struct Triangle t[64]; char triangle_count; };
 struct MeshInstT { char lib_id;  Vector3 pos; float scale; float rot; bool is_taken; };
 
+struct User { char name[16]; char pass[16]; };
+struct Actor { char name[16]; struct Character* character; };
+struct Camera { Vector3 pos; float scale; float rot; };
+
 struct Character {
     char name[8]; char place; char stack;
     char bar[16][16]; struct Type select;
     char age; char gen; char lvl; char hp; char hp_base; char ad; char id; long balance;
     bool roam; bool is_good; bool free;
+
     bool map_visit[64];
 };
 
@@ -55,8 +61,12 @@ struct G2 {
     struct Action_lib action_lib[16];
     struct Challenge_lib challenge_lib[4];
 
+    char noise[128 * 128];
+
     struct Clip clips[4];
     float bpm;
+    float chunk;
+    struct Camera camera;
 
     struct Place place_lib[8];
     struct Item item_lib[8];
@@ -69,8 +79,27 @@ struct G2 {
 };
 
 struct G2 game = {
-    .log = {{.sender = 0, .str = "Hello!"}},
-    .log_cur = 0,
+    .log = {{.type = SAY, .sender = 0, .str = "Hello!"}},
+    .log_cur = 1,
+
+    .bpm = 120.0,
+    .camera = {{0,0,0}, 1.0},
+    .clips = {
+                {
+            .events = {
+                {BEEP, .0},
+                {BEEP, .25},
+                {BEEP, .5},
+                {BEEP, .75}
+}, .count = 4 },
+        {
+            .events = {
+                {BEEP, .0},
+                {BEEP, .25},
+                {BEEP, .5}
+}, .count = 3 },
+},
+
     .action_lib = {
         {"look", "Look around"},
         {"move", ""},
@@ -211,49 +240,73 @@ Vector2 transform(Vector2 a, Vector2 b) { (Vector2) { a.x + b.x, a.y + b.y }; };
 
 struct MeshT transform_m(struct MeshT m, Vector2 t, float scale, float rot) {
     struct MeshT mt; memcpy(&mt, &m, sizeof(struct MeshT));
+    float ax, bx, cx, ay, by, cy;
     for (int tri = 0; tri < m.triangle_count; tri++) {
+        ax = mt.t[tri].a.x;
+        bx = mt.t[tri].b.x;
+        cx = mt.t[tri].c.x;
+        ay = mt.t[tri].a.y;
+        by = mt.t[tri].b.y;
+        cy = mt.t[tri].c.y;
+        mt.t[tri].a.x = ax * cos(rot) - ay * sin(rot);
+        mt.t[tri].a.y = ax * sin(rot) + ay * cos(rot);
+        mt.t[tri].b.x = bx * cos(rot) - by * sin(rot);
+        mt.t[tri].b.y = bx * sin(rot) + by * cos(rot);
+        mt.t[tri].c.x = cx * cos(rot) - cy * sin(rot);
+        mt.t[tri].c.y = cx * sin(rot) + cy * cos(rot);
 
-        mt.t[tri].a.x = mt.t[tri].a.x * cos(rot) - mt.t[tri].a.y * sin(rot);
-        mt.t[tri].b.x = mt.t[tri].b.x * cos(rot) - mt.t[tri].b.y * sin(rot);
-        mt.t[tri].c.x = mt.t[tri].c.x * cos(rot) - mt.t[tri].c.y * sin(rot);
-        mt.t[tri].a.y = mt.t[tri].a.x * sin(rot) + mt.t[tri].a.y * cos(rot);
-        mt.t[tri].b.y = mt.t[tri].b.x * sin(rot) + mt.t[tri].b.y * cos(rot);
-        mt.t[tri].c.y = mt.t[tri].c.x * sin(rot) + mt.t[tri].c.y * cos(rot);
-        mt.t[tri].a.x += t.x; mt.t[tri].a.x *= scale;
-        mt.t[tri].b.x += t.x; mt.t[tri].b.x *= scale;
-        mt.t[tri].c.x += t.x; mt.t[tri].c.x *= scale;
-        mt.t[tri].a.y += t.y; mt.t[tri].a.y *= scale;
-        mt.t[tri].b.y += t.y; mt.t[tri].b.y *= scale;
-        mt.t[tri].c.y += t.y; mt.t[tri].c.y *= scale;
+        mt.t[tri].a.x *= scale;
+        mt.t[tri].b.x *= scale;
+        mt.t[tri].c.x *= scale;
+        mt.t[tri].a.y *= scale;
+        mt.t[tri].b.y *= scale;
+        mt.t[tri].c.y *= scale;
+        mt.t[tri].a.x += t.x;
+        mt.t[tri].b.x += t.x;
+        mt.t[tri].c.x += t.x;
+        mt.t[tri].a.y += t.y;
+        mt.t[tri].b.y += t.y;
+        mt.t[tri].c.y += t.y;
+
     }
     return mt;
 }
 
 int pcount = 0;
-void drawpoint(Vector2 v) {
+void drawpoint(struct G2* g, Vector2 v) {
+    v.y += g->camera.pos.y;
+    v.x += g->camera.pos.x;
+    v.x *= g->camera.scale;
+    v.y *= g->camera.scale;
+    v.y = 128 - v.y;
+    v.x += GetRandomValue(1, 2);
+    v.y += GetRandomValue(1, 2);
     if (v.x > 0 && v.x < 256 && v.y > 0 && v.y < 128)
-        screen[GetRandomValue(-1, 2) + ((int)v.x * 3) + (int)v.y * 256 * 3] = 255;
-
+    {
+        screen[GetRandomValue(1, 2) + ((int)v.x * 3) + (int)v.y * 256 * 3] = 255;
+        pcount += 1;
+    }
     // screen[3+((int)v.x*3)+(int)v.y*256*3] = 255;
-    pcount += 1;
-}
-void drawline(float f, Vector2 a, Vector2 b) {
-    for (int pixel = 0; pixel < 16; pixel++) {
-        drawpoint((Vector2) { lerp(a.x, b.x, pixel / 16.0), lerp(a.y, b.y, pixel / 16.0) });
-    }
-}
-void drawtri(float f, Vector2 a, Vector2 b, Vector2 c) {
-    for (int pixel = 0; pixel < (int)f + 1; pixel++) {
-        drawline(f, a, (Vector2) { lerp(b.x, c.x, pixel / f), lerp(b.y, c.y, pixel / f) });
-    }
-    drawpoint(a);
-    drawpoint(b);
-    drawpoint(c);
 
 }
-void drawmesh(struct MeshT mesh, float t) {
+void drawline(struct G2* g, float f, Vector2 a, Vector2 b) {
+    float s = 16.0;
+    for (int pixel = 0; pixel < s; pixel++) {
+        drawpoint(g, (Vector2) { lerp(a.x, b.x, pixel / s), lerp(a.y, b.y, pixel / s) });
+    }
+}
+void drawtri(struct G2* g, float f, Vector2 a, Vector2 b, Vector2 c) {
+    for (int pixel = 0; pixel < (int)f + 1; pixel++) {
+        drawline(g, f, a, (Vector2) { lerp(b.x, c.x, pixel / f), lerp(b.y, c.y, pixel / f) });
+    }
+    drawpoint(g, a);
+    drawpoint(g, b);
+    drawpoint(g, c);
+
+}
+void drawmesh(struct G2* g, struct MeshT mesh, float t) {
     for (int tri = 0; tri < mesh.triangle_count; tri++) {
-        drawtri(t / 1.0,
+        drawtri(g, t / 1.0,
             (Vector2) {
             mesh.t[tri].a.x, mesh.t[tri].a.y
         },
@@ -341,7 +394,8 @@ int gen_buttons(struct G2* g) {
         b->w = 8;
         b->type.id = c;
         b->type.name = CHALLENGE;
-        b->name[0] = GetRandomValue(32, 128);
+        b->name[0] = c;
+        // if (!g->frame % 111 == 2) { b->name[0] = GetRandomValue(32, 128); }
         g->button_cur += 1;
 
     }
@@ -361,6 +415,9 @@ bool event_process(struct G2* g, enum EVENT event, enum TYPES type, char attr) {
         say(0, TextFormat("%s %i %i", "INT", type, attr));
     switch (type) { case PLACE: { g->chars[0].place = attr; } }
 
+    case BEEP: {
+        say(0, "BEEP");
+    }
     }
     }
 
@@ -371,9 +428,10 @@ void init(struct G2* g) {
     for (int mesh = 0; mesh < 777; mesh++) {
         spawn_mesh(g, GetRandomValue(0, 1), 5 + mesh,
             (Vector3) {
-            GetRandomValue(0, 256), GetRandomValue(0, 128), 111
-        }, GetRandomValue(0, 111) / 111.0, GetRandomValue(0, 111) / 111.0);
+            GetRandomValue(0, 256), GetRandomValue(0, 128), 0
+        }, GetRandomValue(22, 111.0) / 44.0, GetRandomValue(0, 111.0) / 22.0);
     }
+    for (int i = 0; i < 128 * 128; i++) { g->noise[i] = GetRandomValue(0, 255); }
 }
 
 int main(void)
@@ -414,6 +472,7 @@ int main(void)
         if (g->frame == 1) memcpy(&game2, &game, sizeof(struct G2));
 
 
+
         if (IsAudioStreamProcessed(str)) {
             UpdateAudioStream(str,
                 g,
@@ -421,9 +480,16 @@ int main(void)
         };
         if (!IsAudioStreamPlaying(str) & IsAudioStreamReady(str)) { PlayAudioStream(str); }
 
+
+        g->camera.pos.x -= sin(g->frame / 111.0) / 11.0;
+        g->camera.pos.y += sin(g->frame / 22.0) / 22.0;
+        g->camera.scale = 2 + sin(g->frame / 111.0) / 2.0;
+
         BeginDrawing();
         ClearBackground(LIGHTGRAY);
+
         for (int pixel = 0; pixel < 256 * 128 * 3; pixel++) { screen[pixel] = 111; }
+        for (int pixel = 0; pixel < 256 * 128 * 3; pixel++) { screen[pixel] = g->noise[pixel]; }
 
         if (g->frame % 11 == 2) {
             // for (int pixel = 0; pixel < 256 * 128 * 3; pixel++) { screen[pixel] = 0; }
@@ -432,9 +498,9 @@ int main(void)
                 screen[2 + pixel - pixel % 3] = g->frame * sin(pixel / 111.0);
             }
         }
-        for (int pixel = 2; pixel < 11; pixel++)
+        for (int pixel = 0; pixel < 11; pixel++)
         {
-            drawpoint((Vector2) { GetRandomValue(1, 256), GetRandomValue(1, 128) });
+            drawpoint(g, (Vector2) { GetRandomValue(1, 256), GetRandomValue(1, 128) });
 
         }
 
@@ -443,7 +509,7 @@ int main(void)
         for (int mesh = 0; mesh < 777; mesh++) {
             struct MeshT mt; memcpy(&mt, &g->mesh_lib[g->scene[mesh].lib_id], sizeof(struct MeshT));
             if (g->scene[mesh].is_taken) {
-                drawmesh(transform_m(mt,
+                drawmesh(g, transform_m(mt,
                     (Vector2) {
                     g->scene[mesh].pos.x, g->scene[mesh].pos.y
                 }, g->scene[mesh].scale,
@@ -459,6 +525,11 @@ int main(void)
         DrawTexture(tex, 300, 200, WHITE);
         DrawTextureEx(art, (Vector2) { 555, 0 }, 0, .87, WHITE);
         DrawTextureEx(art2, (Vector2) { 0, 328 }, 0, 1, GRAY);
+        DrawTexturePro(tex, (Rectangle) { 16, 32, 128, 64 }, (Rectangle) { 333, 333, 444, 222 },
+            (Vector2) {
+            0, 0
+        }, 0, (Color) { 255, 255, 255, 200 });
+
 
 
         gen_buttons(g);

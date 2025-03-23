@@ -3,14 +3,12 @@
 #include <string.h> 
 #include <stdlib.h>
 
-enum TYPES { CHARACTER, ITEM, PLACE, ACTION, CHALLENGE, CUBE };
+enum TYPES { CHARACTER, ITEM, PLACE, ACTION, CHALLENGE, CUBE};
 enum EVENT { INTERACT, MOVE, SAY, SPAWN, BEEP, PLAY, RESET };
 enum CHALLENGE { NA, AVAILABLE, PROGRESS, FAILED, COMPLETE };
 enum ANIMATION { IDLE, LOOK, WALK, RUN };
-enum MAT {
-    AIR, FOG, WATER, ICE, SAND, DUST, CLAY,
-    STONE, ORE, METAL, SOIL, GRASS, TREE, BRANCH
-};
+enum MAT { AIR, FOG, WATER, ICE, SAND, DUST, CLAY,
+    STONE, ORE, METAL, SOIL, GRASS, TREE, BRANCH };
 struct Type { enum TYPES name;  int id; bool free; };
 struct Tag { char name[8]; char attr;  float timer; };
 struct Attach { enum TYPES type; };
@@ -43,7 +41,7 @@ struct Character {
     char bar[16][16]; struct Type select;
     char age; char gen; char lvl; char hp; char hp_base; char ad; char id; long balance;
     bool roam; bool is_good; bool free;
-    Vector3 pos;
+    Vector3 pos; 
     struct Type reach[8];
     struct Type overlap[8];
     bool map_visit[64];
@@ -77,6 +75,7 @@ struct G2 {
     float bpm;
     float deltaT;
     float deltaS;
+    char color;
     struct Camera camera;
 
     struct Place place_lib[8];
@@ -94,10 +93,11 @@ struct G2 {
 };
 
 struct G2 game = {
-
+    
     .users = {{"adm", ""}},
 
     .bpm = 120.0,
+    .color = -1,
     .camera = {{0,0,0}, 1.0},
     .clips = {
                 {
@@ -116,7 +116,7 @@ struct G2 game = {
                 {BEEP, .0},
                 {BEEP, .25},
                 {BEEP, .5}
-}, .count = 3 },
+}, .count=3 },
 },
 
     .action_lib = {
@@ -139,22 +139,21 @@ struct G2 game = {
 
 .mesh_lib = {
     {"tri", .t = {
-
         {{0,10,0.0}, {10.0,-10.0,0.0}, { -10.0,-10.0,0.0 }} ,
 },
 .triangle_count = 1},
     {"sq", .t = {
         {{-10.0,-10.0,0.0}, {-10.0,10.0,0.0}, { 10.0,10.0,0.0 }} ,
         {{-10.0,-10.0,0.0}, {10.0,10.0,0.0}, { 10.0,-10.0,0.0 }} ,
-
 },
 .triangle_count = 2},
+    {"tetra", .t = {
+        {{-10.0,-10.0,0.0}, {-10.0,10.0,0.0}, { 10.0,10.0,0.0 }} ,
+        {{-10.0,-10.0,0.0}, {10.0,10.0,0.0}, { 10.0,-10.0,0.0 }} ,
+        {{-10.0,-10.0,0.0}, {10.0,10.0,0.0}, { 10.0,-10.0,0.0 }} ,
+        {{-10.0,-10.0,0.0}, {10.0,10.0,0.0}, { 10.0,-10.0,0.0 }} ,
 },
-
-.scene = {
-    {1, {40.0,40.0,0.0}, .scale = 1.0, .is_taken = true },
-
-
+.triangle_count = 4},
 },
 
 .item_lib = {
@@ -179,8 +178,8 @@ struct G2 game = {
 },
 .chars = {
     { "Bob", .place = 14, .stack = 1, .lvl = 1, .id = 2,
-    .hp = 10, .ad = 1, .hp_base = 10, .pos.x = 64, .pos.y = 64},
-    { "Cat", 2, 1, .id = 0, .roam = true, .pos.x = 32, .pos.y = 32},
+    .hp = 10, .ad = 1, .hp_base = 10, .pos.x=22, .pos.y=22},
+    { "Cat", 2, 1, .id = 0, .roam = true, .pos.x = 32, .pos.y=32},
     { "Cat", 3, 1, .id = 0},
     {"Vermin", 6, 3, .id = 1},
     {"Vermin", 5, 13, .id = 1},
@@ -267,19 +266,19 @@ Vector2 transform(Vector2 a, Vector2 b) { (Vector2) { a.x + b.x, a.y + b.y }; };
 struct MeshT transform_m(struct MeshT m, Vector2 t, float scale, float rot) {
     struct MeshT mt; memcpy(&mt, &m, sizeof(struct MeshT));
     float ax, bx, cx, ay, by, cy;
-    for (int tri = 0; tri < m.triangle_count; tri++) {
+    for (int tri = 0; tri < m.triangle_count; tri++) { 
         ax = mt.t[tri].a.x;
         bx = mt.t[tri].b.x;
         cx = mt.t[tri].c.x;
         ay = mt.t[tri].a.y;
         by = mt.t[tri].b.y;
         cy = mt.t[tri].c.y;
-        mt.t[tri].a.x = ax * cos(rot) - ay * sin(rot);
-        mt.t[tri].a.y = ax * sin(rot) + ay * cos(rot);
-        mt.t[tri].b.x = bx * cos(rot) - by * sin(rot);
-        mt.t[tri].b.y = bx * sin(rot) + by * cos(rot);
-        mt.t[tri].c.x = cx * cos(rot) - cy * sin(rot);
-        mt.t[tri].c.y = cx * sin(rot) + cy * cos(rot);
+        mt.t[tri].a.x = ax* cos(rot) - ay* sin(rot);
+        mt.t[tri].a.y = ax* sin(rot) + ay* cos(rot);
+        mt.t[tri].b.x = bx* cos(rot) - by* sin(rot);
+        mt.t[tri].b.y = bx* sin(rot) + by * cos(rot);
+        mt.t[tri].c.x = cx* cos(rot) - cy* sin(rot);
+        mt.t[tri].c.y = cx* sin(rot) + cy* cos(rot);
 
         mt.t[tri].a.x *= scale;
         mt.t[tri].b.x *= scale;
@@ -287,12 +286,12 @@ struct MeshT transform_m(struct MeshT m, Vector2 t, float scale, float rot) {
         mt.t[tri].a.y *= scale;
         mt.t[tri].b.y *= scale;
         mt.t[tri].c.y *= scale;
-        mt.t[tri].a.x += t.x;
-        mt.t[tri].b.x += t.x;
-        mt.t[tri].c.x += t.x;
-        mt.t[tri].a.y += t.y;
-        mt.t[tri].b.y += t.y;
-        mt.t[tri].c.y += t.y;
+         mt.t[tri].a.x += t.x;
+         mt.t[tri].b.x += t.x;
+         mt.t[tri].c.x += t.x;
+         mt.t[tri].a.y += t.y;
+         mt.t[tri].b.y += t.y;
+         mt.t[tri].c.y += t.y;
 
     }
     return mt;
@@ -303,7 +302,7 @@ struct Vector2 rotate_point(Vector2 v, Vector2 o, float r) {
     float vy = v.y;
     v.x = (vx - o.x) * cos(r) - (vy - o.y) * sin(r);
     v.y = (vx - o.x) * sin(r) + (vy - o.y) * cos(r);
-    return (Vector2) { v.x + o.x, v.y + o.y };
+   return (Vector2){ v.x+o.x, v.y+o.y  };
 }
 
 void drawpoint(struct G2* g, Vector2 v) {
@@ -312,11 +311,11 @@ void drawpoint(struct G2* g, Vector2 v) {
     v.x *= g->camera.scale;
     v.y *= g->camera.scale;
     v.y = 128 - v.y;
-    v.x += GetRandomValue(1, 2);
-    v.y += GetRandomValue(1, 2);
+    v.x += GetRandomValue(0, g->color);
+    v.y += GetRandomValue(0, g->color);
     if (v.x > 0 && v.x < 256 && v.y > 0 && v.y < 128)
     {
-        screen[GetRandomValue(1, 2) + ((int)v.x * 3) + (int)v.y * 256 * 3] = 255;
+        screen[GetRandomValue(g->color, 2) + ((int)v.x * 3) + (int)v.y * 256 * 3] = 255;
         g->pcount += 1;
     }
     // screen[3+((int)v.x*3)+(int)v.y*256*3] = 255;
@@ -332,7 +331,7 @@ void drawline(struct G2* g, float f, Vector2 a, Vector2 b) {
 void drawring(struct G2* g, float f, Vector2 a, float r) {
     float s = 555;
     for (int pixel = 0; pixel < s; pixel++) {
-        drawpoint(g, rotate_point((Vector2) { a.x + r, a.y }, a, pixel));
+        drawpoint(g, rotate_point((Vector2) { a.x+r, a.y }, a, pixel));
     }
 }
 
@@ -366,14 +365,12 @@ void drawmesh(struct G2* g, struct MeshT mesh, float t) {
     }
 }
 
-void draw_timeline(struct G2* g) {
+void draw_timeline(struct G2* g) { 
     DrawLine(4, 170, 222, 170, GRAY);
-    DrawCircle(4 + (g->time * 20), 170, 6, BLACK);
+    DrawCircle(4+(g->time*20), 170, 6, BLACK);
     for (int e = 0; e < g->clips[0].count; e++) {
         DrawCircle(4 + 20.0 * (g->clips[0].events[e].time), 170, 3,
-            (Color) {
-            0, (g->clips[0].events[e].time > g->time) * 255, 0, 255
-        });
+            (Color) {0, (g->clips[0].events[e].time > g->time)*255,0,255});
 
     }
 };
@@ -475,11 +472,11 @@ void init(struct G2* g) {
     }
     for (int i = 0; i < 128 * 128; i++) { g->noise[i] = GetRandomValue(0, 255); }
     int phase = GetRandomValue(0, 64);
-    for (int i = 0; i < 64 * 64 * 16; i++) {
+    for (int i = 0; i < 64 * 64* 16; i++) { 
         g->sandbox[i] = 0;
         int z = i / (64 * 64);
-        int x = (phase + i / 64) % 64;
-        if (z < 7 + sin(x / 64.0) * 4 + GetRandomValue(0, 2)) { g->sandbox[i] = DUST; }
+        int x = (phase+i/64)%64;
+        if (z < 7 + sin(x/64.0)*4 + GetRandomValue(0, 2)) { g->sandbox[i] = DUST; }
         if (g->sandbox[i] == DUST && z > 8 + sin(x / 11.0) * 2) { g->sandbox[i] = SOIL; }
         if (g->sandbox[i] == AIR && z < 11) { g->sandbox[i] = WATER; }
         if (g->sandbox[i] == DUST && !GetRandomValue(0, 14)) { g->sandbox[i] = ORE; }
@@ -492,9 +489,10 @@ bool event_process(struct G2* g, enum EVENT event, enum TYPES type, char attr) {
     {
     case BEEP: {
         say(0, "BEEP", GREEN);
+        //g->color = (GetRandomValue(-1, 3));
         spawn(g, ITEM, GetRandomValue(0, 1), GetRandomValue(14, 15),
             (Vector3) {
-            GetRandomValue(0, 128), GetRandomValue(0, 64), 0
+            GetRandomValue(0, 128), GetRandomValue(0, 64), GetRandomValue(0, 64)
         });
         break;
     };
@@ -562,9 +560,9 @@ int main(void)
         if (!IsAudioStreamPlaying(str) & IsAudioStreamReady(str)) { PlayAudioStream(str); }
 
 
-        g->camera.pos.x -= sin(g->frame / 111.0) / 11.0;
-        g->camera.pos.y += sin(g->frame / 22.0) / 22.0;
-        g->camera.scale = 2 + sin(g->frame / 111.0) / 2.0;
+        g->camera.pos.x -= sin(g->frame/333.0)/44.0;
+        g->camera.pos.y += sin(g->frame / 222.0) / 22.0;
+        g->camera.scale = 2 + sin(g->frame/222.0) / 8.0;
 
         BeginDrawing();
         ClearBackground(LIGHTGRAY);
@@ -606,12 +604,18 @@ int main(void)
             if (g->items[item].name[0]) {
                 struct Item* i = &g->items[item];
 
-                if (i->place == 14) {
-                    DrawCircle(4 + 22, 535 - i->pos.y, 4, GREEN);
-                }
-
                 if (i->place == 15) {
                     drawcircle(g, 11, (Vector2) { i->pos.x, i->pos.y }, 4);
+                }
+            }
+        }
+
+        for (int character = 0; character < 64; character++) {
+            if (g->chars[character].name[0]) {
+                struct Character* c = &g->chars[character];
+
+                if (c->place == 15) {
+                    drawcircle(g, 11, (Vector2) { c->pos.x, c->pos.y }, 4);
                 }
             }
         }
@@ -622,14 +626,12 @@ int main(void)
         DrawTexture(tex, 300, 200, WHITE);
         DrawTextureEx(art, (Vector2) { 555, 0 }, 0, .87, WHITE);
         DrawTextureEx(art2, (Vector2) { 0, 328 }, 0, 1, GRAY);
-        DrawTexturePro(tex, (Rectangle) { 16, 32, 128, 64 }, (Rectangle) { 333, 333, 444, 222 },
-            (Vector2) {
-            0, 0
-        }, 0, (Color) { 255, 255, 255, 200 });
+        DrawTexturePro(tex, (Rectangle) {16,32,128,64}, (Rectangle) { 333, 333, 444, 222 },
+            (Vector2) { 0, 0 }, 0, (Color) { 255, 255, 255, 200 });
 
         // sandbox
         for (int v = 0; v < 64 * 16; v++) {
-            DrawText(TextFormat("%c", g->sandbox[v * 64] + 32),
+            DrawText(TextFormat("%c", g->sandbox[v*64]+32),
                 8 * (v % 64), 525 - (v / 64) * 8, 8, WHITE);
         }
 
@@ -637,7 +639,7 @@ int main(void)
 
         g->frame += 1;
         g->time += GetFrameTime();
-
+      
         if (!g->pause) { draw_timeline(g); apply_timeline(g); }
 
         // buttons
@@ -719,7 +721,7 @@ int main(void)
 
         DrawText(TextFormat("%i %i %i %i", g->frame,
             (int)floor(g->time), (int)floor(g->bpm),
-            (int)floor(GetFrameTime() * 1000.0)), 2, 2, 10, GRAY);
+            (int)floor(GetFrameTime()*1000.0)), 2, 2, 10, GRAY);
         DrawText(TextFormat("%i ", g->pcount), 244, 320, 10, WHITE);
 
         for (int place = 0; place < 16; place++) {
@@ -746,10 +748,9 @@ int main(void)
         }
         for (int character = 0; character < 64; character++) {
             if (g->chars[character].name[0]) {
-                struct Character* c = &g->chars[character];
-
+            struct Character* c = &g->chars[character];
                 if (c->place == 14) {
-                    DrawCircle(4 + c->pos.x, 535 - c->pos.y, 4, BLUE);
+                    DrawCircle(4 + c->pos.y, 535 - c->pos.z, 4, BLUE);
                 }
 
                 if (g->chars[character].roam) {
@@ -784,7 +785,11 @@ int main(void)
 
         for (int item = 0; item < 64; item++) {
             if (g->items[item].name[0]) {
+                struct Item* i = &g->items[item];
 
+                if (i->place == 14) {
+                    DrawCircle(4 + i->pos.y, 535 - i->pos.z, 4, GREEN);
+                }
                 DrawText(TextFormat("%c", g->items[item].name[0], item),
                     g->map[g->items[item].place].x + 10,
                     g->map[g->items[item].place].y + 10,
@@ -829,7 +834,7 @@ int main(void)
         int line_map;
         for (int line = 1; line < 5; line++) {
             line_map = g->log_cur - line;
-            // if (line_map <= 0) { line_map = 16 - line; };
+           // if (line_map <= 0) { line_map = 16 - line; };
             if (g->log[line_map].str[0] != '\0') {
                 DrawRectangle(50, 330 - (line * 16),
                     MeasureText(TextFormat("%s", g->log[line_map].str), 10), 16, BLACK);

@@ -525,6 +525,8 @@ void apply_timeline(struct G2* g) {
 int main(void)
 {
 
+    ClearBackground(LIGHTGRAY);
+
     InitAudioDevice();
     AudioStream str;
     str = LoadAudioStream(44100, 16, 1);

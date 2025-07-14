@@ -10,6 +10,37 @@ typedef double db;
 #define max(x, y) (((x) > (y)) ? (x) : (y))
 #define min(x, y) (((x) < (y)) ? (x) : (y))
 
+RECT rect;
+PAINTSTRUCT paint;
+HDC device_context, src;
+LRESULT CALLBACK WindowProcessMessage(HWND, UINT, WPARAM, LPARAM);
+
+BITMAPINFO frame_bitmap_info;
+HBITMAP frame_bitmap = 0;
+HDC frame_device_context = 0;
+HWND window_handle, win2;
+bool resize;
+
+struct event { float time, tone, duration, volume; };
+struct event graph[99];
+char sampler[16][8000];
+unsigned char sound[2][8000];
+bool chunk = 1;
+HWAVEOUT hWaveOut;
+WAVEHDR header[2] = {
+{sound[0], 8000, 0, 0, 0, 0, 0, 0},
+{sound[1], 8000, 0, 0, 0, 0, 0, 0},
+};
+WAVEFORMATEX wfx = { WAVE_FORMAT_PCM, 1, 8000, 8000, 1, 8, 0 };
+static bool quit = false;
+ln i, f, p;
+char buff[64];
+struct {
+    int width;
+    int height;
+    struct color* pixels;
+} frame = { 0 };
+
 struct actor3 { char name[8]; int x; int y; bool spawned; };
 
 struct user { char name[16], paw[16], progress; int score; };
@@ -70,10 +101,19 @@ struct weather { char temp, cloud, rain, wind; };
 
 double PI = 3.141592;
 double PIa = 1.0 / 3.141592;
+struct v2 { double x, y; };
 struct v3  { double x, y, z; };
-struct hit { struct v3 loc, normal; };
+struct v3 addv(struct v3 a, struct v3 b) { return (struct v3) { a.x + b.x, a.y + b.y, a.z + b.z }; };
+struct v3 subv(struct v3 a, struct v3 b) { return (struct v3) { a.x - b.x, a.y - b.y, a.z - b.z }; };
+struct v3 muls(struct v3 a, double b) { return (struct v3) { a.x* b, a.y* b, a.z* b }; };
+struct v3 mulv(struct v3 a, struct v3 b) { return (struct v3) { a.x* b.x, a.y* b.y, a.z* b.z }; };
+struct v3 norm(struct v3 a) { return muls(a, (1 / sqrt(a.x * a.x + a.y * a.y + a.z * a.z))); };
+double dot(struct v3 a, struct v3 b) { return  a.x * b.x + a.y * b.y + a.z * b.z; };
+struct v3 cross(struct v3 a, struct v3 b) { return (struct v3)
+{ a.y*b.z-a.z*b.y, a.z*b.x-a.x*b.z, a.x*b.y-a.y*b.x }; };
+struct trace { bool is_hit; double a, b; struct v3 o, d, l, n; };
 struct color { char r, g, b, a; };
-struct point { struct v3 t; double u, v; struct color a, l; };
+struct point { struct v3 t; double u, v, r; struct color a, l; };
 struct line { struct point a, b; };
 struct triangle { struct point a, b, c; };
 struct triangle mesh1[8] = {
@@ -86,12 +126,26 @@ struct triangle mesh1[8] = {
 };
 
 
+struct trace raysp(struct v3 so, double rd, struct v3 ro, struct v3 dst) {
+    struct trace res; res.is_hit = 0;
+    struct v3 oc = subv(ro, so);
+    float b = dot(oc, dst);
+    float c = dot(oc, oc) - rd * rd;
+    float h = b * b - c;
+    h = sqrt(h);
+    if (h > 0.0) res.is_hit = true; res.a = -b - h; res.b = -b + h;
+    return res;
+};
+struct trace raybox() {};
+struct trace raytri() {};
+
 struct actor {
-    char name[16];
+    char name[16], type[8], parent; short stack; char lvl, state[8],
+        tags[8], user, controlled, sock[4], party[8], path, gen, age, height, weight,
+        deep, thick, cover, rain, wet, light;
+    bool spawned; short hp; int cost;
     struct v3 l, r, s;
-    db lvl;
-    bool spawned;
-    struct actor* parent;
+
 };
 struct state { 
     ln size;
@@ -115,6 +169,8 @@ struct state {
 
 };
 struct actor a;
+struct v3 r;
+struct actor cam;
 struct state g, def;
 void spawn(struct actor a) {
     a.spawned = true;
@@ -122,14 +178,6 @@ void spawn(struct actor a) {
     // memcpy(&g.scene[rand() % 1024], &a, sizeof(a));
 }
 
-static bool quit = false;
-ln i, f, p;
-char buff[64];
-struct {
-    int width;
-    int height;
-    struct color *pixels;
-} frame = { 0 };
 void clear() {
     for (ln i = 0; i < 496 * 216; i++) {
         frame.pixels[i].b = 0;
@@ -137,7 +185,6 @@ void clear() {
         frame.pixels[i].r /= 1.000001;
     }
 }
-
 void point(double x, double y, double z, char c) {
 
     if ((x >= 0 && x < 496) && (y >= 0 && y < 216)) {
@@ -147,9 +194,7 @@ void point(double x, double y, double z, char c) {
     }
 
 }
-
 double lerp(double a, double b, double f) { return a * (1.0 - f) + (b * f); }
-
 void line(struct point a, struct point b) {
 
     for (ln i = 0; i <= 32; i++) {
@@ -160,13 +205,11 @@ void line(struct point a, struct point b) {
             232);
     }
 }
-
 struct triangle trans(struct triangle tri, struct v3 v) {
     tri.a.t = v;
     tri.b.t = v;
     tri.c.t = v;
 }
-
 void tri(struct triangle tri) {
     for (ln it = 0; it <= 111; it++) {
          line(
@@ -179,13 +222,11 @@ void tri(struct triangle tri) {
     };
     // line((struct point) { tri.b.t.x, tri.b.t.y }, (struct point) { tri.c.t.x, tri.c.t.y });
 }
-
 void mesh(struct triangle *mesh) {
     for (i = 0; i < 8; i++) {
         tri(mesh[i]);
     }
 }
-
 struct v3 rotate_point(struct v3 v, struct v3 o, float r) {
     float vx = v.x;
     float vy = v.y;
@@ -193,8 +234,7 @@ struct v3 rotate_point(struct v3 v, struct v3 o, float r) {
     v.y = (vx - o.x) * sin(r) + (vy - o.y) * cos(r);
     return (struct v3) { v.x + o.x, v.y + o.y };
 }
-
-void ring(struct v3 a, struct v3 o, db r) {
+void ring(struct v3 a, db r) {
     for (int pixel = 0; pixel < 111; pixel++) {
         struct v3 v = rotate_point((struct v3) { a.x + r, a.y }, a, pixel);
         point(v.x,v.y,v.z,255);
@@ -202,9 +242,6 @@ void ring(struct v3 a, struct v3 o, db r) {
 };
 char rule[64];
 void turtle() {};
-
-void ray2sphere() {};
-void ray2tri() {};
 
 bool flip() { return rand() % 2; }
 bool weight(float chance) { return rand() < chance * RAND_MAX; }
@@ -217,44 +254,18 @@ float rf() { return rand() / (float)RAND_MAX; }
 float rflog() { return -1.0 / log(rf()); }
 int get_level(int exp) { int lvl = 1 + floor(exp / 1000); return lvl; }
 
-RECT rect;
- PAINTSTRUCT paint;
-HDC device_context, src;
+HANDLE hConsole;
 void console() {
     FILE* conin = stdin;
     FILE* conout = stdout;
     FILE* conerr = stderr;
     AllocConsole();
+    hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
     freopen_s(&conin, "CONIN$", "r", stdin);
     freopen_s(&conout, "CONOUT$", "w", stdout);
     freopen_s(&conerr, "CONOUT$", "w", stderr);
     SetConsoleTitleA("Drawner");
 }
-
-LRESULT CALLBACK WindowProcessMessage(HWND, UINT, WPARAM, LPARAM);
-#if RAND_MAX == 32767
-#define Rand32() ((rand() << 16) + (rand() << 1) + (rand() & 1))
-#else
-#define Rand32() rand()
-#endif
-
- BITMAPINFO frame_bitmap_info;
- HBITMAP frame_bitmap = 0;
- HDC frame_device_context = 0;
- HWND window_handle, win2;
- bool resize;
-
- struct event { float time, tone, duration, volume; };
- struct event graph[99];
- char sampler[16][8000];
- unsigned char sound[2][8000];
- bool chunk = 1;
- HWAVEOUT hWaveOut;
- WAVEHDR header[2] = {
- {sound[0], 8000, 0, 0, 0, 0, 0, 0},
- {sound[1], 8000, 0, 0, 0, 0, 0, 0},
- };
- WAVEFORMATEX wfx = { WAVE_FORMAT_PCM, 1, 8000, 8000, 1, 8, 0 };
 
  float sample(float time, float start, float dur) {
      return time - start;
@@ -263,21 +274,20 @@ LRESULT CALLBACK WindowProcessMessage(HWND, UINT, WPARAM, LPARAM);
      if (time > start && time < (start + dur))  return 1;
      return 0;
  }
-
  char sgen() {
      for (int e = 0; e < 33; ++e) {
          graph[e] = (struct event){
              (rand() % 111) / 111.0,
              440 + (440 * (rand() % 4) / 3.00),
-             (rand() % 128) / 1555.0 ,
-             (rand() % 128) / 128.0
+             (rand() % 128) /890.0 ,
+             (rand() % 128) / 1111.0
          }
          ;
      };
 
      for (int t = 0; t < 8000; ++t)
      {
-         sampler[0][t] = sin((t / 8000.0) * 3.1415 * 2 * 440.0) * 12.0;
+         sampler[0][t] = sin((t / 8000.0) * PI * 2 * 440.0) * 127.0;
          //  printf("%i ", sampler[0][t]);
      }
 
@@ -303,7 +313,6 @@ LRESULT CALLBACK WindowProcessMessage(HWND, UINT, WPARAM, LPARAM);
          //  printf("%i ", sampler[0][t]);
      }
  }
-
  char splay() {
      chunk = !chunk;
      waveOutPrepareHeader(hWaveOut, &header[chunk], sizeof(WAVEHDR));
@@ -346,9 +355,11 @@ LRESULT CALLBACK WindowProcessMessage(HWND, UINT, WPARAM, LPARAM);
          g.scene[i].spawned = true;
      }
 
+     r = norm((struct v3) { 0, -0.042612, -1 });
+     cam.l = (struct v3){ 50,52,295.6 };
+     cam.r = r;
 
  };
-
  void restart() {
      g = def;
      init();
@@ -366,7 +377,6 @@ LRESULT CALLBACK WindowProcessMessage(HWND, UINT, WPARAM, LPARAM);
      if (msg[0] == '\0') { return; }
      g.turn += 1;
  }
- 
  void fun() {
 
      while (1) {
@@ -389,18 +399,26 @@ LRESULT CALLBACK WindowProcessMessage(HWND, UINT, WPARAM, LPARAM);
      }
  }
 
+
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, int nCmdShow) {
 
     HDC win = GetDC(0);
     timeBeginPeriod(1);
     console();
-
+    for (int i = 8; i <= 255; i++) {
+        SetConsoleTextAttribute(hConsole, i);
+        printf("%c", i);
+    }
+    printf("\n");
+    SetConsoleTextAttribute(hConsole, 15);
 
     // srand((int)time(NULL));
     waveOutOpen(&hWaveOut, WAVE_MAPPER, &wfx, 0, 0, CALLBACK_NULL);
     init();
 
-   sgen(); splay(); splay();
+   sgen();
+   //splay(); splay();
+
     CreateThread(0, 0, fun, 0, 0, 0);
 
     rect.bottom = 164;
@@ -461,7 +479,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
     RECT rect3 = { 0,16, 1256,32 };
 
 
-
     while (!quit) {
 
          MSG message;
@@ -474,16 +491,33 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
     // BeginPaint(window_handle, &paint);
 
 
+
      for (ln i = 0; i < 29; i++) {
          g.path[i] = (struct actor){ "sphere", .l.x = 111, .l.y = 111, .s.x = 10};
+
      }
+
 
      for (ln i = 0; i < 496 * 217; i++) {
          int w = i % 496;
          int h = i / 496;
-         frame.pixels[i].g = 255*w/ 496;
+         frame.pixels[i].g = 111*w/ 496;
         // frame.pixels[i].r = 0;
-         frame.pixels[i].b = 255 * h / 217;
+         frame.pixels[i].b = 11 * h / 217;
+
+         struct trace hit = raysp(
+             mesh1[0].a.t,
+             31,
+             (struct v3) {
+             w, h
+         },
+             (struct v3) {
+             0, 0, 1
+         }
+         );
+        // frame.pixels[i].g = hit.is_hit*255;
+          if (hit.is_hit) point(w, h, 0, 111);
+
      }
 
     for (ln i = 0; i < 1024; i++) {
@@ -494,25 +528,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
                 //DrawTextA(frame_device_context, "A", -1, &r, DT_SINGLELINE);
             }
         }
-        line((struct point) { 0, 0 }, (struct point) {
-            cos(f / 33.0) * 222 - sin(f / 33.0) * 33,
-                sin(f / 33.0) * 222 + cos(f / 33.0) * 111
-        });
-
-
-       // tri(mesh1[0]);
-        ring(
-            mesh1[0].a.t,
-        mesh1[3].a.t,
-            33
-        );
-
-         mesh(mesh1);
 
         sprintf_s(buff, 62, "Drawner %i", (int)f, (int)p);
         SetWindowTextA(window_handle, buff);
 
       //  BitBlt(frame_device_context, 0, 111, 64, 64, src, 0, 0, SRCCOPY);
+
+    line((struct point) { 0, 0 }, (struct point) {
+    cos(f / 33.0) * 222 - sin(f / 33.0) * 33,
+    sin(f / 33.0) * 222 + cos(f / 33.0) * 111});
+    ring(mesh1[0].a.t, 33);
+    mesh(mesh1);
+    // you can loop k higher to see more color choices
+        // pick the colorattribute k you want
 
         for (int i = 1; i <= 128; i++) {
             if (g.scene3[i].spawned) {
@@ -526,7 +554,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
                     g.scene3[i].spawned = false;
                     g.spawned -= 1;
                     g.user.progress += 1;
+                    SetConsoleTextAttribute(hConsole, 11);
                     printf("%s: %s. \n", g.lines[g.user.progress].name, g.lines[g.user.progress].text);
+                    SetConsoleTextAttribute(hConsole, 15);
                     printf("[%s], T[%i], Progress: %i/%i\n", g.msg, g.turn, g.user.progress,
                         sizeof(g.lines) / sizeof(struct line2));
                     if (!g.spawned) { restart(); }
@@ -544,6 +574,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
         DrawTextA(frame_device_context, buff, -1, &rect2, DT_SINGLELINE);
         sprintf_s(buff, 64, " f %i x %i y %i", (int)f, g.x, g.y);
         DrawTextA(frame_device_context, buff, -1, &rect3, DT_SINGLELINE);
+
 
 
     //    sprintf_s(buff, 64, "  asd ", i);
@@ -600,7 +631,22 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
     case WM_MOUSEMOVE: { 
         if (window_handle == win2) break;
 
-      //  printf_s(" x%i y%i", LOWORD(lParam), 216-HIWORD(lParam));
+        //  printf_s(" x%i y%i", LOWORD(lParam), 216-HIWORD(lParam));
+        struct trace hit = raysp(
+            mesh1[0].a.t,
+            33,
+            (struct v3) {
+            LOWORD(lParam), HIWORD(lParam)
+        },
+            (struct v3) {
+            0, 0, 1
+        }
+        );
+        if (hit.is_hit) { 
+            SetConsoleTextAttribute(hConsole, 12);
+            printf_s("S%f, %f ", hit.a, hit.b);
+            SetConsoleTextAttribute(hConsole, 15);
+        };
         struct actor a;
         a.l.x = LOWORD(lParam);
         a.l.y = 216 - HIWORD(lParam);

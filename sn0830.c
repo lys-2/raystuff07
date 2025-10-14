@@ -57,6 +57,9 @@ enum mount { skate, bike, scooter };
 
 struct v4 { double x, y, z, w; };
 struct v3 { double x, y, z; };
+struct color { unsigned char r, g, b, a; };
+struct point { struct v3 p; struct color c; };
+struct triangle { struct point a, b, c; };
 struct v2 { double x, y; };
 struct tf { struct v3 loc, rot, scale; };
 struct tr { double x, y, z, p, r, yw, sx, sy, sz; };
@@ -139,6 +142,34 @@ struct m3 rtm(struct v3 r) {
 };
 struct v3 rot(struct v3 ro, struct v3 rt) { return mmv(rtm(rt), ro); }
 
+double lerp(double a, double b, double f) { return a * (1.0 - f) + (b * f); }
+void draw_point(struct point p) { frame.pixels[11111] = 255; };
+void draw_point2d(int x, int y, struct color c) { 
+    frame.pixels[(x + y * frame.width) * 4] = c.b*c.a/255.;
+    frame.pixels[1+(x + y * frame.width) * 4]-= 0;
+    frame.pixels[2+(x + y * frame.width) * 4] += c.r / 255;
+};
+void draw_line(struct point a, struct point b, struct color c) {
+    for (ln i = 0; i <= 132; i++) {
+        draw_point2d(
+            lerp(a.p.x, b.p.x, i / 132.0),
+            lerp(a.p.y, b.p.y, i / 132.0), c);
+    }
+}void tri(struct triangle tri, struct color c) {
+    for (ln it = 0; it <= 111; it++) {
+        draw_line(
+            (struct point) {
+            tri.a.p.x, tri.a.p.y
+        },
+            (struct point) {
+            lerp(tri.b.p.x, tri.c.p.x, it / 111.0),
+                lerp(tri.b.p.y, tri.c.p.y, it / 111.0),
+        }, 
+            c
+        );
+    };
+}
+
 struct v4 sphere(struct v3 ro, struct v3 rd, struct v3 r)
 {
     float a, b, c, h, t; struct v3 r2, n;
@@ -167,11 +198,14 @@ struct user {
 enum place { house, yard, street, town };
 struct actor scene[16] = {
 
-    {.name = "house", place, .at = yard},
+    {.name = "House", place, .at = yard},
     {.name = "yard", place, .at = street},
     {.name = "street", place, .at = town},
     {.name = "town", place, .is_root = 1 },
     {.name = "sewer", place, .at = town},
+    {.name = "Cat", creature, .at = street},
+    {.name = "Turkey", creature, .at = yard},
+    {.name = "Spruce", plant, .at = street},
     {.name = "cam", item, .t = {0.,0.,0.,0.,0.,0.,1.,1.,1.}},
     {.name = "sphere", item, .t = {0.,0.,0.,0.,0.,0.,11111.,11111.,11111.}},
     {.name = "sphere", item, .t = {0.,0.,0.,0.,0.,0.,222222.,1.,222222.}},
@@ -184,7 +218,7 @@ struct actor items_lib[16] = {
     {.name = "base set", item, .price = 10000 },
 };
 
-struct user def_user = { "Admin", "qwe" };
+struct user def_user = { "MegaVova90", "qwe" };
 struct actor def_char =
 { "Player", character, 18, fighter, m, 2, 0, 1, .hp = 20, .at = street,
 .t.loc.x = .0, .0, -3., 111.
@@ -197,10 +231,12 @@ struct user u_lib[16] = {
     }
     },
 };
-struct color { unsigned char r, g, b, a; };
+
 #define us g.u[g.session]
 #define ch g.s[us.playing]
 struct state {
+
+
     bool is_mouse_back; enum smode sm; enum mode mode;
     int id, users, actors, requests, session, uc, ac, is_auth, frame;
     struct user u[8];
@@ -220,7 +256,7 @@ void clear() {
 
 #if defined(_WIN32)
     system("cls");
-    SetConsoleTitle(L"asdfg");
+    SetConsoleTitle(L"snry rpg");
 #endif
 }
 
@@ -263,7 +299,7 @@ void get() {
     );
     for (int i = 0; i < 15; i++) {
         if (g.s[i].taken)
-            printf("%i::%s  ", i, g.s[i].name);
+            printf("%i::%s[%i] ", i, g.s[i].name, g.s[i].at);
     }
     //printf("\n\r");
     for (unsigned char i = 0; i < 255; i++) {
@@ -355,6 +391,32 @@ void fun() { while (1) {
 } };
 
 struct rend { ln th, id; };
+void ren2() {
+    srand(0);
+    for (ln i = 0; i < 1111; i++)
+    {
+        draw_point2d(12 + rand(i) % 111, 12 + rand(i) % 111, (struct color) {255});
+    }
+
+    for (ln i = 0; i < 111; i++)
+    {
+        draw_line(
+            (struct point) {rand(i)%111, rand(i)%222, rand(i)%222},
+            (struct point) {0.}, (struct color) { 0, 0, 255, 255 }
+        );
+    }
+
+    for (ln i = 0; i < 33; i++)
+    {
+        tri(
+            (struct triangle) {
+            (struct point) {rand(i)%333, rand(i)%222, rand(i)%222},
+            (struct point) {rand(i)%333, rand(i)%222, rand(i)%222},
+            (struct point) {rand(i)%333, rand(i)%222, rand(i)%222}
+        }, (struct color) { 0, 255, 0, 4 }
+        );
+    }
+}
 void ren(struct rend d) {
 
         double x = ch.t.rot.x;
@@ -409,7 +471,7 @@ void init() {
 
 LRESULT CALLBACK WindowProcessMessage(HWND window_handle, UINT message, WPARAM wParam, LPARAM lParam) {
    
-    if (message == WM_KEYDOWN) printf("%c", wParam);
+    // if (message == WM_KEYDOWN) printf("%c", wParam);
     if (message == WM_KEYDOWN && wParam == 'R') reset();
     if (message == WM_KEYDOWN && wParam == 0x09) {
         g.mode = ui;
@@ -498,7 +560,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
     // Set the console screen buffer size
     init();
     CreateThread(0, 0, fun, 0, 0, 0);
-    struct rend rn[16]; rn[0] = (struct rend){ 12, 0 };
+    struct rend rn[16]; rn[0] = (struct rend){ 4, 0 };
 
     SYSTEM_INFO si;
     GetSystemInfo(&si);
@@ -516,12 +578,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
        // frame.pixels[(p++) % (frame.width * frame.height)] = Rand32();
        // frame.pixels[Rand32() % (frame.width * frame.height)] = 0;
         ren(rn[0]);
+        ren2();
 
         InvalidateRect(window_handle, NULL, FALSE);
         UpdateWindow(window_handle);
         ShowCursor(0);
         char buff[64];
-        sprintf(buff, "screen F%i W%i:%i M%i:%i %iC-%i %zu\231 ",
+        sprintf(buff, "Role places (Weird shapes) F%i W%i:%i M%i:%i %iC-%i %zu\231 ",
             g.frame, frame.width, frame.height, us.x, us.y,
             si.dwNumberOfProcessors, 
             si.wProcessorArchitecture,

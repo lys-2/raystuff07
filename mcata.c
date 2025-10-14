@@ -118,7 +118,7 @@ struct line2 lines[20] = {
     {"junk robot", "i'm a junk robot who talks a lot"},
     {"junk robot", "have to keep it up with all the conversations"},
     {"junk robot", "keep it up too"},
-    {"junk robot", "why not try this stick item on"},
+    {"junk robot", "why not try this so-called weapon item on"},
     {"junk robot", "It is lying somewhere there"},
     {"junk robot", "then smash some boxes just as usual"},
     {"junk robot", "here we go", "W[HOE]", "R[EXP][100]"},
@@ -148,20 +148,12 @@ struct trace raysp(struct v3 so, double rd, struct v3 ro, struct v3 dir) {
 
     return res;
 };
-
-struct trace rayplane(struct v3 plane_a, struct v3 ro) {
-    struct trace res; res.is_hit = 0;
-
-    return res;
-
-
-};
 struct trace raybox() {};
 struct trace raytri() {};
 
 struct state { 
     ln size;
-    struct actor scene[1024];
+    struct actor scene[9999], scene3[1111] , path[99], cam, s[255];
     struct line2 lines[255];
     struct user user;
     char turn;
@@ -271,7 +263,7 @@ void console() {
     freopen_s(&conin, "CONIN$", "r", stdin);
     freopen_s(&conout, "CONOUT$", "w", stdout);
     freopen_s(&conerr, "CONOUT$", "w", stderr);
-    SetConsoleTitleA("mcat console");
+    SetConsoleTitleA("Drawner");
 }
 
  float sample(float time, float start, float dur) {
@@ -334,43 +326,36 @@ void console() {
 
     // memcpy(&g_default, &g, sizeof(struct game));
      memcpy(&g.name, "User", sizeof("User"));
-
      g.spawned = 32;
      for (i = 0; i <= 32; i++) {
-         spawn((struct actor) { 
-             .spawned = true,
-             .name = "moth",
-             .l.x = rand() % (512 - 64),
-             .l.y = rand() % (256 - 64)
-         } );
+         g.scene3[i].x = rand() % (512 - 64);
+         g.scene3[i].y = rand() % (256 - 64);
+         g.scene3[i].spawned = true;
 
      }
 
      for (int i = 0; i < 255; i++) {
          // g.s[i] = ad;
-         g.scene[i].hp = rand() % 4 + g.scene[i].lvl * 10;
+         g.s[i].hp = rand() % 4 + g.s[i].lvl * 10;
          if (i < 16) {
-             g.scene[i] = scene[i];
-             if (!g.scene[i].lvl) g.scene[i].lvl = 1;
-             if (!g.scene[i].name[0]) g.scene[i].name[0] = 'D';
-             if (!g.scene[i].stack) g.scene[i].stack = 1;
-             g.scene[i].spawned = true;
-             g.scene[i].hp = 3 - rand() % 8 + g.scene[i].lvl * 10 +
-                 (g.scene[i].type[0] == 'l') * 1100;
+             g.s[i] = scene[i];
+             if (!g.s[i].lvl) g.s[i].lvl = 1;
+             if (!g.s[i].name[0]) g.s[i].name[0] = 'D';
+             if (!g.s[i].stack) g.s[i].stack = 1;
+             g.s[i].spawned = true;
+             g.s[i].hp = 3 - rand() % 8 + g.s[i].lvl * 10 + (g.s[i].type[0] == 'l') * 1100;
          }
      }
 
      for (int i = 0; i < 1024; i++) {
-         spawn((struct actor) {
-             .spawned = true,
-                 .l.x = rand() % 495,
-                 .l.y = rand() % 215
-         });
-
+         g.scene[i].l.x = rand() % 495;
+         g.scene[i].l.y = rand() % 215;
+         g.scene[i].l.z = i;
+         g.scene[i].spawned = true;
      }
 
-     g.scene[0].l = (struct v3){15,15,0};
-     g.scene[0].r = (struct v3){0,0,-1};
+     g.cam.l = (struct v3){ 15,15,0 };
+     g.cam.r = (struct v3){ 0,0,-1 };
 
  };
  void restart() {
@@ -395,12 +380,11 @@ void console() {
      while (1) {
 
          for (short i = 32; i  >= 0; i--) {
-             if (g.scene[i].spawned)
+             if (g.s[i].spawned)
                  printf("%s[%c][%s], tg[%s}, %i, %i, %i\n",
-                     g.scene[i].name, g.scene[i].type[0],
-                     g.scene[g.scene[i].parent].name,
-                     g.scene[i].tags,
-                     g.scene[i].stack, g.scene[i].lvl, g.scene[i].hp
+                     g.s[i].name, g.s[i].type[0], g.s[g.s[i].parent].name,
+                     g.s[i].tags,
+                     g.s[i].stack, g.s[i].lvl, g.s[i].hp
                  )
                  ;
          }
@@ -479,23 +463,23 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
     //    222, 444, 512, 256, NULL, NULL, hInstance, NULL);
     //SetWindowPos(win2, 0, 654, 111, 256, 256, 0);
 
-    //HWND hwndButton[16];
-    //ln i;
-    //for (i = 0; i < 4; i++) {
-    //    sprintf_s(buff, 16, " B%i", i);
-    //    hwndButton[i] = CreateWindowA("Button", buff,
-    //        WS_VISIBLE | WS_CHILD, 0, i * 32, 80, 25,
-    //        win2, (HMENU)2, NULL, NULL);
-    //    hwndButton[i+4] = CreateWindowW(L"Edit", NULL,
-    //        WS_CHILD | WS_VISIBLE | WS_BORDER,
-    //        100, i * 32, 60, 20, win2, (HMENU)1,
-    //        NULL, NULL);
-    //    hwndButton[i + 8] = CreateWindowW(L"button1", NULL,
-    //        WS_CHILD | WS_VISIBLE | BS_CHECKBOX,
-    //        200, i * 32, 16, 20, win2, (HMENU)1,
-    //        NULL, NULL);
+    HWND hwndButton[16];
+    ln i;
+    for (i = 0; i < 4; i++) {
+        sprintf_s(buff, 16, " B%i", i);
+        hwndButton[i] = CreateWindowA("Button", buff,
+            WS_VISIBLE | WS_CHILD, 0, i * 32, 80, 25,
+            win2, (HMENU)2, NULL, NULL);
+        hwndButton[i+4] = CreateWindowW(L"Edit", NULL,
+            WS_CHILD | WS_VISIBLE | WS_BORDER,
+            100, i * 32, 60, 20, win2, (HMENU)1,
+            NULL, NULL);
+        hwndButton[i + 8] = CreateWindowW(L"button1", NULL,
+            WS_CHILD | WS_VISIBLE | BS_CHECKBOX,
+            200, i * 32, 16, 20, win2, (HMENU)1,
+            NULL, NULL);
 
-    //}
+    }
 
     HBITMAP pic = LoadImage(0, L"actor.bmp", IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
     src = CreateCompatibleDC(0);
@@ -517,6 +501,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
      clear();
     // BeginPaint(window_handle, &paint);
 
+
+
+     for (ln i = 0; i < 29; i++) {
+         g.path[i] = (struct actor){ "sphere", .l.x = 111, .l.y = 111, .s.x = 10};
+
+     }
+
      int rx, ry;
      for (ln i = 0; i < 496 * 217; i++) {
          int x = i % 496;
@@ -528,16 +519,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
 
          for (int i = 0; i < 1; i++) {
              struct trace hit = raysp(
-                g.scene[i].l,
-                 7,
+                 mesh1[0].a.t,
+                 32,
                  (struct v3) {
-                 x, y, 100
+                 x, y, 10
              },
-                 (struct v3) {
+                 norm((struct v3) {
                  0, 0, -1
              }
-             );
-             if (hit.is_hit) point(x, y, 0, 155.0);
+             ));
+             if (hit.is_hit) point(x, y, 0, 255.0);
          }
         //frame.pixels[i].g = hit.is_hit*255;
 
@@ -545,14 +536,27 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
 
      }
 
-     g.scene[0].l = (struct v3){1, 0, 3};
+     g.cam.l = (struct v3){ 1, 0, 3 };
+
+    for (ln i = 0; i < 1024; i++) {
+         
+            if (g.scene[i].spawned==true) {
+                point(g.scene[i].l.x, g.scene[i].l.y, 0, 255);
+                //ring(
+                //    (struct v3) { g.scene[i].l.x, g.scene[i].l.y,0},
+                //    4);
+
+             //   RECT r = { g.scene[i].t.x, g.scene[i].t.y, g.scene[i].t.x + 16,g.scene[i].t.y + 16 };
+                //DrawTextA(frame_device_context, "A", -1, &r, DT_SINGLELINE);
+            }
+        }
 
         sprintf_s(buff, 62, "mcat %s %s[%i] %i/%i",
-            g.scene[g.scene[6].parent].name,
-            g.scene[6].name,
-            g.scene[6].lvl,
-            g.scene[6].hp,
-            g.scene[6].lvl*10
+            g.s[g.s[6].parent].name,
+            g.s[6].name,
+            g.s[6].lvl,
+            g.s[6].hp,
+            g.s[6].lvl*10
         );
         SetWindowTextA(window_handle, buff);
 
@@ -572,39 +576,33 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
     DrawTextA(frame_device_context, buff, -1, &rect3, DT_SINGLELINE);
 
 
-    for (int i = 1; i <= 1024; i++) {
-        if (g.scene[i].spawned)
-            point(g.scene[i].l.x, g.scene[i].l.y, 0, 255);
+        for (int i = 1; i <= 128; i++) {
+            if (g.scene3[i].spawned) {
+                if (
+                    (g.x > g.scene3[i].x
+                        && g.x < g.scene3[i].x + 32) &&
 
-        if (g.scene[i].spawned && g.scene[i].name[0] == 'm') {
-            if (
-                (g.x > g.scene[i].l.x
-                    && g.x < g.scene[i].l.x + 32) &&
-
-                (g.y > g.scene[i].l.y
-                    && g.y < g.scene[i].l.y + 32
-                    )) {
-                g.scene[i].spawned = false;
-                g.spawned -= 1;
-                g.user.progress += 1;
-                SetConsoleTextAttribute(hConsole, 11);
-                printf("%s: %s. \n", g.lines[g.user.progress].name, g.lines[g.user.progress].text);
-                SetConsoleTextAttribute(hConsole, 15);
-                printf("[%s], T[%i], Progress: %i/%i\n", g.msg, g.turn, g.user.progress,
-                    sizeof(g.lines) / sizeof(struct line2));
-                if (!g.spawned) { restart(); }
+                    (g.y > g.scene3[i].y
+                        && g.y < g.scene3[i].y + 32
+                        )) {
+                    g.scene3[i].spawned = false;
+                    g.spawned -= 1;
+                    g.user.progress += 1;
+                    SetConsoleTextAttribute(hConsole, 11);
+                    printf("%s: %s. \n", g.lines[g.user.progress].name, g.lines[g.user.progress].text);
+                    SetConsoleTextAttribute(hConsole, 15);
+                    printf("[%s], T[%i], Progress: %i/%i\n", g.msg, g.turn, g.user.progress,
+                        sizeof(g.lines) / sizeof(struct line2));
+                    if (!g.spawned) { restart(); }
+                }
+            };
+            if (g.scene3[i].spawned) {
+                TransparentBlt(frame_device_context,
+                    g.scene3[i].x, g.scene3[i].y, 32, 32, src, 0, 0, 64, 64, RGB(0, 0, 0));
+                sprintf_s(buff, 64, "%i", i);
+               RECT r4 = { g.scene3[i].x-8, g.scene3[i].y, g.scene3[i].x+16,g.scene3[i].y+16 };
+                DrawTextA(frame_device_context, buff, -1, &r4, DT_SINGLELINE);
             }
-        };
-
-        if (g.scene[i].spawned && g.scene[i].name[0] == 'm') {
-            TransparentBlt(frame_device_context,
-                g.scene[i].l.x, g.scene[i].l.y, 32, 32, src, 0, 0, 64, 64, RGB(0, 0, 0));
-            sprintf_s(buff, 64, "%i", i);
-            RECT r4 = { g.scene[i].l.x - 8, g.scene[i].l.y,
-                g.scene[i].l.x + 16,g.scene[i].l.y + 16 };
-            DrawTextA(frame_device_context, buff, -1, &r4, DT_SINGLELINE);
-        }
-
         }
 
         SetPixel(win, rand() % 16, rand() % 1024, RGB(0, 255, 0));

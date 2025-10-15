@@ -45,7 +45,9 @@ void console() {
     SetConsoleTitleA("asdf ");
 }
 
-enum type { character = 1, place, item, plant, creature, event, tag };
+enum type { character=1, place, item, plant, creature, event, tag,
+
+};
 enum role { fighter = 1, mage, rogue };
 enum gen { m = 1, f };
 enum result { ok, bad };
@@ -137,10 +139,23 @@ struct m3 rollm(double a) {
     };
 };
 
-struct m3 rtm(struct v3 r) {
-    return mmm(mmm(yawm(r.z), pitchm(r.y)), rollm(r.x)); 
+struct m3 rotm(double a, double b, double c) {
+    return (struct m3) {
+        {cos(b)*cos(c), sin(a)*sin(b)*cos(c)-cos(a)*sin(c), 
+            cos(a)*sin(b)* cos(c)+sin(a)*sin(c)},
+
+        {cos(b)*sin(c), sin(a)*sin(b)*sin(c)+cos(a)*cos(c), 
+            cos(a)*sin(b)*sin(c)-sin(a)*cos(c)
+        },
+        {-sin(b), sin(a) * cos(b),cos(a) * cos(b) }
+    };
 };
-struct v3 rot(struct v3 ro, struct v3 rt) { return mmv(rtm(rt), ro); }
+
+struct m3 rtm(struct v3 r) {
+  //  return mmm(mmm(yawm(r.z), pitchm(r.y)), rollm(r.x));
+    return mmm(mmm(pitchm(r.y), rollm(r.x)), yawm(r.z));
+};
+struct v3 rot(struct v3 ro, struct v3 rt) { return mmv(rotm(rt.x, rt.y, rt.z), ro); }
 
 double lerp(double a, double b, double f) { return a * (1.0 - f) + (b * f); }
 void draw_point(struct point p) { frame.pixels[11111] = 255; };
@@ -172,11 +187,13 @@ void draw_line(struct point a, struct point b, struct color c) {
 
 struct v4 sphere(struct v3 ro, struct v3 rd, struct v3 r)
 {
-    float a, b, c, h, t; struct v3 r2, n;
+    double a, b, c, h, t; struct v3 r2, n, ocn, rdn;
      r2 = mulv(r, r);
-     a = dot(rd, divv(rd, r2));
-     b = dot(ro, divv(rd, r2));
-     c = dot(ro, divv(ro, r2));
+     ocn = divv(ro, r);
+     rdn = divv(rd, r);
+     a = dot(rdn, rdn);
+     b = dot(ocn, rdn);
+     c = dot(ocn, ocn);
      h = b * b - a * (c - 1.0);
     if (h < 0.0) return (struct v4) { -1.0 };
      t = (-b - sqrt(h)) / a;
@@ -196,7 +213,7 @@ struct user {
 };
 
 enum place { house, yard, street, town };
-struct actor scene[16] = {
+struct actor scene[32] = {
 
     {.name = "House", place, .at = yard},
     {.name = "yard", place, .at = street},
@@ -208,7 +225,7 @@ struct actor scene[16] = {
     {.name = "Spruce", plant, .at = street},
     {.name = "cam", item, .t = {0.,0.,0.,0.,0.,0.,1.,1.,1.}},
     {.name = "sphere", item, .t = {0.,0.,0.,0.,0.,0.,11111.,11111.,11111.}},
-    {.name = "sphere", item, .t = {0.,0.,0.,0.,0.,0.,222222.,1.,222222.}},
+    {.name = "sphere", item, .t = {0.,0.,0.,0.,0.,0.,22222.,111.,22222.}},
     {.name = "sphere", item, .t = {0.,0.,0.,0.,0.,0.,111.,111.,111.}},
 
     //  {.name = "dungeon", place, .parent = town},
@@ -221,7 +238,7 @@ struct actor items_lib[16] = {
 struct user def_user = { "MegaVova90", "qwe" };
 struct actor def_char =
 { "Player", character, 18, fighter, m, 2, 0, 1, .hp = 20, .at = street,
-.t.loc.x = .0, .0, -3., 111.
+.t.loc.x = .0, .0, -3., -21., -100.
 };
 struct user u_lib[16] = {
     {.name = "adm", "qw",
@@ -235,16 +252,13 @@ struct user u_lib[16] = {
 #define us g.u[g.session]
 #define ch g.s[us.playing]
 struct state {
-
-
     bool is_mouse_back; enum smode sm; enum mode mode;
-    int id, users, actors, requests, session, uc, ac, is_auth, frame;
+    int id, users, actors, requests, session, uc, ac, is_auth, frame, scale;
     struct user u[8];
-    struct actor s[16];
+    struct actor s[32];
     char log[64][64], req[64], name[16], b[255];
     unsigned short sound[24000 * 4];
     struct color screen[1024 * 512];
-
 };
 
 struct state g, def, save, rep[16];
@@ -277,7 +291,7 @@ int get_actor() {
 }
 void get() {
     g.requests++;
-    printf("%i/4 users, %i/16 actors, F%i\n", g.uc, g.ac, g.frame);
+    printf("%i/4 users, %i/32 actors, F%i\n", g.uc, g.ac, g.frame);
     if (!g.is_auth) { printf("Hello!\n"); return; }
     printf("%i::%s ch:%d/4\n", g.session, g.u[g.session].name,
         g.u[g.session].cc);
@@ -297,9 +311,9 @@ void get() {
         ch.t.rot.z
 
     );
-    for (int i = 0; i < 15; i++) {
+    for (int i = 0; i < 32; i++) {
         if (g.s[i].taken)
-            printf("%i::%s[%i] ", i, g.s[i].name, g.s[i].at);
+            printf("%i::%s[%i]\n", i, g.s[i].name, g.s[i].at);
     }
     //printf("\n\r");
     for (unsigned char i = 0; i < 255; i++) {
@@ -333,7 +347,7 @@ void char_create(struct actor a) {
 };
 void char_delete(int id) { g.u[g.session].character[id].taken = 0; };
 int spawn(struct actor a, int where) {
-    if (g.ac != 16) {
+    if (g.ac != 32) {
         g.s[g.ac] = a;
         g.s[g.ac].at = where; g.s[g.ac].taken = 1; g.ac++; return g.ac - 1;
     }
@@ -355,15 +369,16 @@ void reset() {
     user_create(def_user);
     log_in(0, "qwe");
     char_create(def_char);
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < 32; i++) {
         if (scene[i].name[0] != '\0') {
             g.s[i] = scene[i]; g.s[i].taken = 1; g.ac++;
         }
     }
     play(0);
-    ch.t.rot = mmv(yawm(11.), ch.t.rot);
-    ch.t.loc = mmm(mx, mx).a;
+    //ch.t.rot = (struct v3){ 0.,0.,0. };
+    ch.t.loc = (struct v3){-221.,-221.,444.};
     g.sm = copied;
+    g.scale = 8;
 };
 void parse(char req[64]) {
     if (req[0] == 'g') { get(); }
@@ -377,8 +392,6 @@ void parse(char req[64]) {
     if (req[0] == 'w') { spawn((struct actor) { "box" }, street); }
     if (req[0] == 'm') { move(0, 0, street); }
     if (req[0] == 's') { say("qwertyuy"); }
-    if (req[0] == 'a') { ch.t.rot = rot(ro, (struct v3) { rand(), rand(), rand() }); }
-    if (req[0] == 'd') { ch.t.rot.x = sin(rand()); }
 };
 
 void fun() { while (1) {
@@ -406,42 +419,44 @@ void ren2() {
         );
     }
 
-    for (ln i = 0; i < 33; i++)
+    for (ln i = 0; i < 23; i++)
     {
         tri(
             (struct triangle) {
             (struct point) {rand(i)%333, rand(i)%222, rand(i)%222},
             (struct point) {rand(i)%333, rand(i)%222, rand(i)%222},
             (struct point) {rand(i)%333, rand(i)%222, rand(i)%222}
-        }, (struct color) { 0, 255, 0, 4 }
+        }, (struct color) { 0, 255, 0, 42 }
         );
     }
 }
+void clears(int i) {
+    frame.pixels[1 + i * 4] = 0.;
+    frame.pixels[i * 4] = 0.;
+    frame.pixels[2 + i * 4] = 0.;
+}
 void ren(struct rend d) {
-
         double x = ch.t.rot.x;
         double y = ch.t.rot.y;
-
     int p;
+    db a;
+
+     for (ln i = 0; i < frame.width * frame.height ; i++) {
+         clears(i);
+     }
 
     for (ln i = 0; i < frame.width * frame.height/ d.th; i++) {
         p = i * d.th;
-      // frame.pixels[ 1 + i * 4] = 0.;
-     //  frame.pixels[ i * 4] = 0.;
-      //  frame.pixels[ 2 + i * 4] = 0.;
-
-
-        for (ln i2 = 0; i2 < 16; i2++) {
+        a = p / frame.width / 2222.;
+        for (ln i2 = 0; i2 < 32; i2++) {
             if (!strcmp(g.s[i2].name, "sphere")) {
 
                 struct v4 r = sphere(
-                    (struct v3) {
-                    -211., -211., 441.
-                },
+                    ch.t.loc,
                     rot((struct v3) { 0., -1., 0. },
                         (struct v3) {
-                    y / 111. + p / frame.width / 2222. - .2,
-                        x / 111. - p % frame.width / 2222.,
+                    ch.t.rot.y / 111. + (floor(p / frame.width) / 2222.),
+                        ch.t.rot.x / 111. - (p % frame.width / 2222.),
                         0.
                 }),
                     g.s[i2].t.scale
@@ -449,14 +464,11 @@ void ren(struct rend d) {
                 if ((ln)r.x != -1) {
 
                     frame.pixels[1 + p * 4] = (ln)((r.y + 1.) * 111.);
-                   frame.pixels[ p * 4] = (int)((r.z + 1.) * 111.);
+                    frame.pixels[ p * 4] = (int)((r.z + 1.) * 111.);
                     frame.pixels[2 + p * 4] = (int)((r.w + 1.) * 111.);
                 }
-                
             }
-            
         }
-
     }
     
     
@@ -469,10 +481,19 @@ void init() {
 #endif
 };
 
-LRESULT CALLBACK WindowProcessMessage(HWND window_handle, UINT message, WPARAM wParam, LPARAM lParam) {
-   
+LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
+    UINT message, WPARAM wParam, LPARAM lParam) {
+
     // if (message == WM_KEYDOWN) printf("%c", wParam);
     if (message == WM_KEYDOWN && wParam == 'R') reset();
+    if (message == WM_KEYDOWN && wParam == 'Q') ch.t.loc.y += 111.;
+    if (message == WM_KEYDOWN && wParam == 'E') ch.t.loc.y -= 111.;
+    if (message == WM_KEYDOWN && wParam == 'W') 
+        ch.t.loc = mulv(ch.t.loc, ch.t.loc);
+    if (message == WM_KEYDOWN && wParam == 'X') 
+    {
+        g.scale += 1; g.scale = 1 + g.scale % 16; 
+    }
     if (message == WM_KEYDOWN && wParam == 0x09) {
         g.mode = ui;
     }
@@ -560,7 +581,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
     // Set the console screen buffer size
     init();
     CreateThread(0, 0, fun, 0, 0, 0);
-    struct rend rn[16]; rn[0] = (struct rend){ 4, 0 };
+    struct rend rn[16];
 
     SYSTEM_INFO si;
     GetSystemInfo(&si);
@@ -577,8 +598,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
         while (PeekMessage(&message, NULL, 0, 0, PM_REMOVE)) { DispatchMessage(&message); }
        // frame.pixels[(p++) % (frame.width * frame.height)] = Rand32();
        // frame.pixels[Rand32() % (frame.width * frame.height)] = 0;
+        rn[0] = (struct rend){ g.scale, 0 };
         ren(rn[0]);
         ren2();
+        
 
         InvalidateRect(window_handle, NULL, FALSE);
         UpdateWindow(window_handle);
@@ -591,6 +614,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
                 sizeof(void*)*8
         );
         SetWindowTextA(window_handle, buff);
+        if (g.frame % 113 == 0) { clear();  get(); }
         g.frame++;
         // Sleep(1);
 

@@ -8,6 +8,7 @@
 #include <stdio.h>
 #define db double
 #define ln long long
+#define AC 256
 
 #if RAND_MAX == 32767
 #define Rand32() ((rand() << 16) + (rand() << 1) + (rand() & 1))
@@ -60,7 +61,7 @@ enum mount { skate, bike, scooter };
 struct v4 { double x, y, z, w; };
 struct v3 { double x, y, z; };
 struct color { unsigned char r, g, b, a; };
-struct point { struct v3 p; struct color c; };
+struct point { struct v3 p; struct color c; db u, v; };
 struct triangle { struct point a, b, c; };
 struct v2 { double x, y; };
 struct tf { struct v3 loc, rot, scale; };
@@ -69,7 +70,11 @@ struct v3 ro = { .0,.0,-1. };
 struct v3 rt = { 11.,31.,-21. };
 struct m3 { struct v3 a, b, c; };
 struct m3 mx = { { 11., 31., -21. }, { 11., 31., -21. }, { 11., 31., -21. } };
+double len(struct v2 v) { return sqrt(v.x * v.x + v.y * v.y); };
+struct v2 absv(struct v2 v) { return (struct v2) { abs(v.x), abs(v.y) }; };
+struct v2 subs(struct v2 v, double s) { return (struct v2) { v.x-s, v.y-s }; };
 struct v3 addv(struct v3 a, struct v3 b) { return (struct v3) { a.x + b.x, a.y + b.y, a.z + b.z }; };
+struct v2 subv2(struct v2 a, struct v2 b) { return (struct v2) { a.x - b.x, a.y - b.y}; };
 struct v3 subv(struct v3 a, struct v3 b) { return (struct v3) { a.x - b.x, a.y - b.y, a.z - b.z }; };
 struct v3 muls(struct v3 a, double b) { return (struct v3) { a.x* b, a.y* b, a.z* b }; };
 struct v3 mulv(struct v3 a, struct v3 b) { return (struct v3) { a.x* b.x, a.y* b.y, a.z* b.z }; };
@@ -88,7 +93,6 @@ float rand2(double id) {
     return sin(dot2((struct v2) { id, 1.},
         (struct v2) {127.1, 311.7})) * 43758.5453;
 }
-
 
 struct v3 mmv(struct m3 m, struct v3 v) {
     return (struct v3) {
@@ -152,37 +156,73 @@ struct m3 rotm(double a, double b, double c) {
 };
 
 struct m3 rtm(struct v3 r) {
-  //  return mmm(mmm(yawm(r.z), pitchm(r.y)), rollm(r.x));
-    return mmm(mmm(pitchm(r.y), rollm(r.x)), yawm(r.z));
+    return mmm(mmm(yawm(r.z), pitchm(r.y)), rollm(r.x));
 };
 struct v3 rot(struct v3 ro, struct v3 rt) { return mmv(rotm(rt.x, rt.y, rt.z), ro); }
 
 double lerp(double a, double b, double f) { return a * (1.0 - f) + (b * f); }
 void draw_point(struct point p) { frame.pixels[11111] = 255; };
 void draw_point2d(int x, int y, struct color c) { 
-    frame.pixels[(x + y * frame.width) * 4] = c.b*c.a/255.;
-    frame.pixels[1+(x + y * frame.width) * 4]-= 0;
-    frame.pixels[2+(x + y * frame.width) * 4] += c.r / 255;
+    if (x >= frame.width || x < 0) { return; }
+    if (y >= frame.height || y < 0) { return; }
+    frame.pixels[(x + y * frame.width) * 4] = c.b;
+    frame.pixels[1+(x + y * frame.width) * 4] = c.g;
+    frame.pixels[2+(x + y * frame.width) * 4] = c.r;
 };
 void draw_line(struct point a, struct point b, struct color c) {
-    for (ln i = 0; i <= 132; i++) {
+    int d = len((struct v2) {a.p.x, a.p.y}, (struct v2) { b.p.x, b.p.y });
+    for (ln i = 0; i <= d; i++) {
         draw_point2d(
-            lerp(a.p.x, b.p.x, i / 132.0),
-            lerp(a.p.y, b.p.y, i / 132.0), c);
+            lerp(a.p.x, b.p.x, i / (db)d),
+            lerp(a.p.y, b.p.y, i / (db)d), c);
     }
 }void tri(struct triangle tri, struct color c) {
-    for (ln it = 0; it <= 111; it++) {
+
+    for (ln it = 0; it <= 11; it++) {
         draw_line(
             (struct point) {
             tri.a.p.x, tri.a.p.y
         },
             (struct point) {
-            lerp(tri.b.p.x, tri.c.p.x, it / 111.0),
-                lerp(tri.b.p.y, tri.c.p.y, it / 111.0),
+            lerp(tri.b.p.x, tri.c.p.x, it / 11.0),
+                lerp(tri.b.p.y, tri.c.p.y, it / 11.0),
         }, 
             c
         );
     };
+}
+
+void card(struct point a, struct point b, struct point c, struct point d)
+{
+
+}
+
+void ring(db x, db y, db r) {
+    for (db pixel = 0; pixel < 8*r; pixel++) {
+        struct v3 v = rot(
+            (struct v3) { 0., r, 0. },
+            (struct v3) {0.,0.,pixel}
+        );
+        draw_point2d(x+v.x, y+v.y, (struct color) {255,133,133,255});
+    }
+};
+
+double circle(struct v2 p, double r)
+{
+    return len(p) - r;
+}
+
+double box(struct v2 p, struct v2 b)
+{
+    struct v2 d = subv2(absv(p), b);
+    return len((struct v2) 
+    { max(max(d.x, d.y), 0.0) + min(max(d.x, d.y), 0.0) });
+}
+
+double plane(struct v3 ro, struct v3 rd, struct v4 p)
+{
+    return -(dot(ro, (struct v3){p.x, p.y, p.z}) + p.w) /
+        dot(rd, (struct v3){p.x, p.y, p.z});
 }
 
 struct v4 sphere(struct v3 ro, struct v3 rd, struct v3 r)
@@ -203,7 +243,7 @@ struct v4 sphere(struct v3 ro, struct v3 rd, struct v3 r)
 
 struct actor {
     char name[16], type, age, class, gen, lvl, stack, taken, text[128],
-        is_root, is_for_sale;
+        is_root, is_for_sale, select;
     float time; int at, channel, owner, hp, price; struct tf t;
 };
 struct user {
@@ -213,7 +253,7 @@ struct user {
 };
 
 enum place { house, yard, street, town };
-struct actor scene[32] = {
+struct actor scene[AC] = {
 
     {.name = "House", place, .at = yard},
     {.name = "yard", place, .at = street},
@@ -221,12 +261,12 @@ struct actor scene[32] = {
     {.name = "town", place, .is_root = 1 },
     {.name = "sewer", place, .at = town},
     {.name = "Cat", creature, .at = street},
-    {.name = "Turkey", creature, .at = yard},
     {.name = "Spruce", plant, .at = street},
-    {.name = "cam", item, .t = {0.,0.,0.,0.,0.,0.,1.,1.,1.}},
-    {.name = "sphere", item, .t = {0.,0.,0.,0.,0.,0.,11111.,11111.,11111.}},
-    {.name = "sphere", item, .t = {0.,0.,0.,0.,0.,0.,22222.,111.,22222.}},
+  //  {.name = "cam", item, .t = {0.,0.,0.,0.,0.,0.,1.,1.,1.}},
+  //  {.name = "sphere", item, .t = {0.,0.,0.,0.,0.,0.,11111.,11111.,11111.}},
+   // {.name = "sphere", item, .t = {0.,0.,0.,0.,0.,0.,22222.,111.,22222.}},
     {.name = "sphere", item, .t = {0.,0.,0.,0.,0.,0.,111.,111.,111.}},
+    {.name = "plane", item, .t = {0.,0.,0.,0.,0.,0.,1.,1.,1.}},
 
     //  {.name = "dungeon", place, .parent = town},
 };
@@ -253,12 +293,14 @@ struct user u_lib[16] = {
 #define ch g.s[us.playing]
 struct state {
     bool is_mouse_back; enum smode sm; enum mode mode;
-    int id, users, actors, requests, session, uc, ac, is_auth, frame, scale;
+    int id, users, actors, requests, session,
+        uc, ac, is_auth, frame, scale, reset;
     struct user u[8];
-    struct actor s[32];
+    struct actor s[AC];
     char log[64][64], req[64], name[16], b[255];
     unsigned short sound[24000 * 4];
     struct color screen[1024 * 512];
+    struct color font[16*16*8*8];
 };
 
 struct state g, def, save, rep[16];
@@ -291,7 +333,7 @@ int get_actor() {
 }
 void get() {
     g.requests++;
-    printf("%i/4 users, %i/32 actors, F%i\n", g.uc, g.ac, g.frame);
+    printf("%i/4 users, %i/%i actors, F%i\n", g.uc, g.ac, AC, g.frame);
     if (!g.is_auth) { printf("Hello!\n"); return; }
     printf("%i::%s ch:%d/4\n", g.session, g.u[g.session].name,
         g.u[g.session].cc);
@@ -311,7 +353,7 @@ void get() {
         ch.t.rot.z
 
     );
-    for (int i = 0; i < 32; i++) {
+    for (int i = 0; i < AC; i++) {
         if (g.s[i].taken)
             printf("%i::%s[%i]\n", i, g.s[i].name, g.s[i].at);
     }
@@ -347,7 +389,7 @@ void char_create(struct actor a) {
 };
 void char_delete(int id) { g.u[g.session].character[id].taken = 0; };
 int spawn(struct actor a, int where) {
-    if (g.ac != 32) {
+    if (g.ac != AC) {
         g.s[g.ac] = a;
         g.s[g.ac].at = where; g.s[g.ac].taken = 1; g.ac++; return g.ac - 1;
     }
@@ -365,20 +407,32 @@ void mount(int mount) {};
 void emote(int emote) {};
 void say(char m[64]) {};
 void reset() {
-    g = def;
+    int r = g.reset;
+    g = def; 
+    g.reset = r;
+    g.reset += 1;
     user_create(def_user);
     log_in(0, "qwe");
     char_create(def_char);
-    for (int i = 0; i < 32; i++) {
+    srand(g.reset);
+    for (int i = 0; i < AC; i++) {
         if (scene[i].name[0] != '\0') {
             g.s[i] = scene[i]; g.s[i].taken = 1; g.ac++;
         }
+        g.s[i].t.loc.x = rand() % frame.width;
+        g.s[i].t.loc.y = rand() % frame.height;
+        if (scene[i].t.scale.x < .01) 
+        { scene[i].t.scale = (struct v3){
+           4.+(rand()%11),
+           4.+(rand()%22),
+        }; }
     }
+
     play(0);
     //ch.t.rot = (struct v3){ 0.,0.,0. };
-    ch.t.loc = (struct v3){-221.,-221.,444.};
+    ch.t.loc = (struct v3){221.,221.,44.};
     g.sm = copied;
-    g.scale = 8;
+    g.scale = 11;
 };
 void parse(char req[64]) {
     if (req[0] == 'g') { get(); }
@@ -426,9 +480,18 @@ void ren2() {
             (struct point) {rand(i)%333, rand(i)%222, rand(i)%222},
             (struct point) {rand(i)%333, rand(i)%222, rand(i)%222},
             (struct point) {rand(i)%333, rand(i)%222, rand(i)%222}
-        }, (struct color) { 0, 255, 0, 42 }
+        }, (struct color) { 0, 255, 0, 11 }
         );
     }
+
+    for (ln a = 0; a < AC; a++) {
+        if (!g.s[a].taken) { continue; }
+
+        draw_point2d(g.s[a].t.loc.x,
+            g.s[a].t.loc.y, (struct color) { 0, 0, 255, 255 });
+        ring(g.s[a].t.loc.x, g.s[a].t.loc.y, 11.);
+    }
+
 }
 void clears(int i) {
     frame.pixels[1 + i * 4] = 0.;
@@ -438,43 +501,87 @@ void clears(int i) {
 void ren(struct rend d) {
         double x = ch.t.rot.x;
         double y = ch.t.rot.y;
-    int p;
+    int p, dx, dy;
     db a;
 
      for (ln i = 0; i < frame.width * frame.height ; i++) {
          clears(i);
      }
 
-    for (ln i = 0; i < frame.width * frame.height/ d.th; i++) {
-        p = i * d.th;
+    for (ln px = 0; px < frame.width * frame.height/ d.th; px++) {
+        p = px * d.th;
         a = p / frame.width / 2222.;
-        for (ln i2 = 0; i2 < 32; i2++) {
-            if (!strcmp(g.s[i2].name, "sphere")) {
+        struct v3 r, vc;
+        double hit;
+        dy = floor(p / frame.width);
+        dx = floor(p % frame.width);
+
+        vc = rot(
+            (struct v3) {
+            0., 0., -1.
+        },
+            (struct v3) {
+            ch.t.rot.y / 111. + (dy - (dy / 2)) / 2222.,
+                ch.t.rot.x / 111. - (dx - (dx / 2)) / 2222.,
+                0.,
+        });
+
+        for (ln a = 0; a < AC; a++) {
+            if (!g.s[a].taken) { continue; }
+            if (!strcmp(g.s[a].name, "plane")) {
+
+                hit = plane(
+                    subv(ch.t.loc, g.s[a].t.loc),
+                    vc,
+                    (struct v4) {0.,1.,0.,0.} 
+            );
+            if (hit>.0) frame.pixels[1 + p * 4] += (ln)(hit*11.);
+
+                }
+            if (!strcmp(g.s[a].name, "sphere")) {
 
                 struct v4 r = sphere(
                     ch.t.loc,
-                    rot((struct v3) { 0., -1., 0. },
-                        (struct v3) {
-                    ch.t.rot.y / 111. + (floor(p / frame.width) / 2222.),
-                        ch.t.rot.x / 111. - (p % frame.width / 2222.),
-                        0.
-                }),
-                    g.s[i2].t.scale
+                    vc,
+                    g.s[a].t.scale
                 );
                 if ((ln)r.x != -1) {
 
                     frame.pixels[1 + p * 4] = (ln)((r.y + 1.) * 111.);
-                    frame.pixels[ p * 4] = (int)((r.z + 1.) * 111.);
-                    frame.pixels[2 + p * 4] = (int)((r.w + 1.) * 111.);
+                    frame.pixels[p * 4] = (ln)((r.z + 1.) * 111.);
+                    frame.pixels[2 + p * 4] = (ln)((r.w + 1.) * 111.);
                 }
             }
+
+            else frame.pixels[p * 4] = 188.;
+
+            if (circle((struct v2) {
+                dx - g.s[a].t.loc.x,
+                    dy - g.s[a].t.loc.y
+            }, g.s[a].t.scale.x) < 1.)
+            {
+             //   frame.pixels[2 + p * 4] = 255;
+           //     draw_point2d(dx, dy, (struct color) {255,0,0,255});
+                ;
+            }
+
+
+            if (box((struct v2) {
+                dx - g.s[a].t.loc.x,
+                    dy - g.s[a].t.loc.y
+            }, (struct v2) { g.s[a].t.scale.x,g.s[a].t.scale.y}) < 3.)
+            {
+                frame.pixels[2 + p * 4] = 255;
+                ;
+            }
+
         }
     }
-    
     
     }
 
 void init() {
+    reset();
     reset();
 #if defined(_WIN32)
     win();
@@ -486,8 +593,9 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
 
     // if (message == WM_KEYDOWN) printf("%c", wParam);
     if (message == WM_KEYDOWN && wParam == 'R') reset();
-    if (message == WM_KEYDOWN && wParam == 'Q') ch.t.loc.y += 111.;
-    if (message == WM_KEYDOWN && wParam == 'E') ch.t.loc.y -= 111.;
+    if (message == WM_KEYDOWN && wParam == 'Q') ch.t.loc.y -= 111.;
+    if (message == WM_KEYDOWN && wParam == 'E') ch.t.loc.y += 111.;
+    if (message == WM_KEYDOWN && wParam == 'T') { clear(); get(); }
     if (message == WM_KEYDOWN && wParam == 'W') 
         ch.t.loc = mulv(ch.t.loc, ch.t.loc);
     if (message == WM_KEYDOWN && wParam == 'X') 
@@ -521,7 +629,6 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
     ch.t.rot.x -= (LOWORD(lParam)- x)/12.;
 
     SetCursorPos(pt.x, pt.y);
-
 
     } break;
 
@@ -575,7 +682,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
 
     console();
     window_handle = CreateWindow(window_class_name, L"screen", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-        111, 333, 777, 333, NULL, NULL, hInstance, NULL);
+        11, 333, 999, 333, NULL, NULL, hInstance, NULL);
     if (window_handle == NULL) { return -1; }
     // SetWindowPos(window_handle, 0, 111, 111, 512, 256, 0);
     // Set the console screen buffer size
@@ -602,7 +709,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
         ren(rn[0]);
         ren2();
         
-
         InvalidateRect(window_handle, NULL, FALSE);
         UpdateWindow(window_handle);
         ShowCursor(0);
@@ -614,7 +720,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
                 sizeof(void*)*8
         );
         SetWindowTextA(window_handle, buff);
-        if (g.frame % 113 == 0) { clear();  get(); }
+       // if (g.frame % 113 == 0) { clear();  get(); }
         g.frame++;
         // Sleep(1);
 

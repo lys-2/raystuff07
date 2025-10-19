@@ -8,7 +8,7 @@
 #include <stdio.h>
 #define db double
 #define ln long long
-#define AC 256
+#define AC 4096
 
 #if RAND_MAX == 32767
 #define Rand32() ((rand() << 16) + (rand() << 1) + (rand() & 1))
@@ -294,7 +294,7 @@ struct user u_lib[16] = {
 struct state {
     bool is_mouse_back; enum smode sm; enum mode mode;
     int id, users, actors, requests, session,
-        uc, ac, is_auth, frame, scale, reset;
+        uc, ac, is_auth, frame, scale, reset, ren[AC], renc;
     struct user u[8];
     struct actor s[AC];
     char log[64][64], req[64], name[16], b[255];
@@ -457,6 +457,14 @@ void fun() { while (1) {
 
 } };
 
+void cull() {
+    g.renc = 0;
+    for (ln i = 0; i < AC; i++) {
+        if (g.s[i].taken) {g.ren[g.renc] = i; g.renc++;}
+
+    };
+}
+
 struct rend { ln th, id; };
 void ren2() {
     srand(0);
@@ -484,9 +492,8 @@ void ren2() {
         );
     }
 
-    for (ln a = 0; a < AC; a++) {
-        if (!g.s[a].taken) { continue; }
-
+    for (ln r = 0; r < g.renc; r++) {
+        int a = g.ren[r];
         draw_point2d(g.s[a].t.loc.x,
             g.s[a].t.loc.y, (struct color) { 0, 0, 255, 255 });
         ring(g.s[a].t.loc.x, g.s[a].t.loc.y, 11.);
@@ -526,24 +533,25 @@ void ren(struct rend d) {
                 0.,
         });
 
-        for (ln a = 0; a < AC; a++) {
-            if (!g.s[a].taken) { continue; }
-            if (!strcmp(g.s[a].name, "plane")) {
+        for (ln a = 0; a < g.renc; a++) {
+            int id = g.ren[a];
+            frame.pixels[p * 4] = 188.;
+            if (!strcmp(g.s[id].name, "plane")) {
 
                 hit = plane(
-                    subv(ch.t.loc, g.s[a].t.loc),
+                    subv(ch.t.loc, g.s[id].t.loc),
                     vc,
                     (struct v4) {0.,1.,0.,0.} 
             );
             if (hit>.0) frame.pixels[1 + p * 4] += (ln)(hit*11.);
 
                 }
-            if (!strcmp(g.s[a].name, "sphere")) {
+            if (!strcmp(g.s[id].name, "sphere")) {
 
                 struct v4 r = sphere(
                     ch.t.loc,
                     vc,
-                    g.s[a].t.scale
+                    g.s[id].t.scale
                 );
                 if ((ln)r.x != -1) {
 
@@ -553,25 +561,22 @@ void ren(struct rend d) {
                 }
             }
 
-            else frame.pixels[p * 4] = 188.;
-
             if (circle((struct v2) {
-                dx - g.s[a].t.loc.x,
-                    dy - g.s[a].t.loc.y
-            }, g.s[a].t.scale.x) < 1.)
+                dx - g.s[id].t.loc.x,
+                    dy - g.s[id].t.loc.y
+            }, g.s[id].t.scale.x) < 1.)
             {
              //   frame.pixels[2 + p * 4] = 255;
-           //     draw_point2d(dx, dy, (struct color) {255,0,0,255});
+              //  draw_point2d(dx, dy, (struct color) {255,255,0,255});
                 ;
             }
 
-
             if (box((struct v2) {
-                dx - g.s[a].t.loc.x,
-                    dy - g.s[a].t.loc.y
-            }, (struct v2) { g.s[a].t.scale.x,g.s[a].t.scale.y}) < 3.)
+                dx - g.s[id].t.loc.x,
+                    dy - g.s[id].t.loc.y
+            }, (struct v2) { g.s[id].t.scale.x,g.s[id].t.scale.y}) < 3.)
             {
-                frame.pixels[2 + p * 4] = 255;
+                draw_point2d(dx, dy, (struct color) { 255, 0, 0, 255 });
                 ;
             }
 
@@ -596,8 +601,8 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
     if (message == WM_KEYDOWN && wParam == 'Q') ch.t.loc.y -= 111.;
     if (message == WM_KEYDOWN && wParam == 'E') ch.t.loc.y += 111.;
     if (message == WM_KEYDOWN && wParam == 'T') { clear(); get(); }
-    if (message == WM_KEYDOWN && wParam == 'W') 
-        ch.t.loc = mulv(ch.t.loc, ch.t.loc);
+    if (message == WM_KEYDOWN && wParam == 'F') 
+        spawn((struct actor) { "box" }, street);
     if (message == WM_KEYDOWN && wParam == 'X') 
     {
         g.scale += 1; g.scale = 1 + g.scale % 16; 
@@ -706,6 +711,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
        // frame.pixels[(p++) % (frame.width * frame.height)] = Rand32();
        // frame.pixels[Rand32() % (frame.width * frame.height)] = 0;
         rn[0] = (struct rend){ g.scale, 0 };
+
+        cull();
         ren(rn[0]);
         ren2();
         

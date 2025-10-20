@@ -17,7 +17,7 @@
 #endif
 
 static bool quit = false;
-struct {
+struct frame {
     int width;
     int height;
     unsigned char* pixels;
@@ -33,6 +33,7 @@ static HWND window_handle;
 static MSG message;
 static unsigned int p = 0;
 HANDLE hConsole;
+HWND consoleWindow;
 
 void console() {
     FILE* conin = stdin;
@@ -52,7 +53,7 @@ enum type { character=1, place, item, plant, creature, event, tag,
 enum role { fighter = 1, mage, rogue };
 enum gen { m = 1, f };
 enum result { ok, bad };
-enum mode { first, ui };
+enum mode { first, ui, text };
 enum smode { drawing, ready, copied  };
 enum emote { wave, happy, sad, touch };
 enum anim { idle, sit, fight, lay, swim, jump };
@@ -242,7 +243,7 @@ struct v4 sphere(struct v3 ro, struct v3 rd, struct v3 r)
 }
 
 struct actor {
-    char name[16], type, age, class, gen, lvl, stack, taken, text[128],
+    char name[17], type, age, class, gen, lvl, stack, taken, text[128],
         is_root, is_for_sale, select;
     float time; int at, channel, owner, hp, price; struct tf t;
 };
@@ -264,7 +265,7 @@ struct actor scene[AC] = {
     {.name = "Spruce", plant, .at = street},
   //  {.name = "cam", item, .t = {0.,0.,0.,0.,0.,0.,1.,1.,1.}},
   //  {.name = "sphere", item, .t = {0.,0.,0.,0.,0.,0.,11111.,11111.,11111.}},
-   // {.name = "sphere", item, .t = {0.,0.,0.,0.,0.,0.,22222.,111.,22222.}},
+  // {.name = "sphere", item, .t = {0.,0.,0.,0.,0.,0.,22222.,111.,22222.}},
     {.name = "sphere", item, .t = {0.,0.,0.,0.,0.,0.,111.,111.,111.}},
     {.name = "plane", item, .t = {0.,0.,0.,0.,0.,0.,1.,1.,1.}},
 
@@ -277,7 +278,7 @@ struct actor items_lib[16] = {
 
 struct user def_user = { "MegaVova90", "qwe" };
 struct actor def_char =
-{ "Player", character, 18, fighter, m, 2, 0, 1, .hp = 20, .at = street,
+{ "TonHaru6aTop2000", character, 18, fighter, m, 2, 0, 1, .hp = 20, .at = street,
 .t.loc.x = .0, .0, -3., -21., -100.
 };
 struct user u_lib[16] = {
@@ -294,10 +295,10 @@ struct user u_lib[16] = {
 struct state {
     bool is_mouse_back; enum smode sm; enum mode mode;
     int id, users, actors, requests, session,
-        uc, ac, is_auth, frame, scale, reset, ren[AC], renc;
+        uc, ac, is_auth, frame, scale, reset, ren[AC], renc, log_c;
     struct user u[8];
     struct actor s[AC];
-    char log[64][64], req[64], name[16], b[255];
+    char log[4][64], req[64], name[16], b[255];
     unsigned short sound[24000 * 4];
     struct color screen[1024 * 512];
     struct color font[16*16*8*8];
@@ -353,9 +354,16 @@ void get() {
         ch.t.rot.z
 
     );
+    for (int i = 0; i < 4; i++) {
+            printf("| %s \n", g.log[i]);
+    }
     for (int i = 0; i < AC; i++) {
         if (g.s[i].taken)
-            printf("%i::%s[%i]\n", i, g.s[i].name, g.s[i].at);
+            printf("%i::%s%s[%i] ", i,
+                (us.playing == i) ? "|C|" : "N",
+                g.s[i].name,
+                g.s[i].at         
+            );
     }
     //printf("\n\r");
     for (unsigned char i = 0; i < 255; i++) {
@@ -389,9 +397,15 @@ void char_create(struct actor a) {
 };
 void char_delete(int id) { g.u[g.session].character[id].taken = 0; };
 int spawn(struct actor a, int where) {
+    int x, y;
+    srand(g.frame); x = rand() % frame.width;
+    y = rand(11111) % frame.height;
     if (g.ac != AC) {
         g.s[g.ac] = a;
+        g.s[g.ac].t.loc.x = x;
+        g.s[g.ac].t.loc.y = y;
         g.s[g.ac].at = where; g.s[g.ac].taken = 1; g.ac++; return g.ac - 1;
+
     }
 };
 void delete(int what) { g.s[what].taken = 0; };
@@ -402,10 +416,17 @@ void play(int id) {
     g.u[g.session].is_playing = true;
 };
 void sel(int what) {};
-void move(int what, int where, int channel) {};
+void move(int what, int where, int channel) {
+    g.s[what].at = where; g.s[what].channel = channel;
+};
 void mount(int mount) {};
 void emote(int emote) {};
-void say(char m[64]) {};
+void say(char m[64]) {
+    char s[111];
+    sprintf(s, "%i|%s", g.log_c, m);
+    strcpy(g.log[g.log_c%4], s);
+    g.log_c++;
+};
 void reset() {
     int r = g.reset;
     g = def; 
@@ -435,6 +456,13 @@ void reset() {
     g.scale = 11;
 };
 void parse(char req[64]) {
+    if (g.mode == text) {
+        say(req);
+        g.mode = first;
+        SetForegroundWindow(window_handle);
+        SetFocus(window_handle);
+        return;
+    }
     if (req[0] == 'g') { get(); }
     if (req[0] == 'r') { reset(); }
     if (req[0] == 'l') { log_in(0, "qwe"); }
@@ -446,13 +474,17 @@ void parse(char req[64]) {
     if (req[0] == 'w') { spawn((struct actor) { "box" }, street); }
     if (req[0] == 'm') { move(0, 0, street); }
     if (req[0] == 's') { say("qwertyuy"); }
+    SetForegroundWindow(window_handle);
+    SetFocus(window_handle);
+
+
 };
 
 void fun() { while (1) {
     clear();
     get();
     //  printf("%s\n", g.req);
-    scanf("%s", g.req);
+    int s = scanf("%64s", g.req);
     parse(g.req);
 
 } };
@@ -536,12 +568,13 @@ void ren(struct rend d) {
         for (ln a = 0; a < g.renc; a++) {
             int id = g.ren[a];
             frame.pixels[p * 4] = 188.;
+            
             if (!strcmp(g.s[id].name, "plane")) {
-
+                struct v3 r = {0.};
                 hit = plane(
                     subv(ch.t.loc, g.s[id].t.loc),
                     vc,
-                    (struct v4) {0.,1.,0.,0.} 
+                    (struct v4) {r.x,1.,0.,0.} 
             );
             if (hit>.0) frame.pixels[1 + p * 4] += (ln)(hit*11.);
 
@@ -570,7 +603,7 @@ void ren(struct rend d) {
               //  draw_point2d(dx, dy, (struct color) {255,255,0,255});
                 ;
             }
-
+            if (g.s[id].type != place) { continue; }
             if (box((struct v2) {
                 dx - g.s[id].t.loc.x,
                     dy - g.s[id].t.loc.y
@@ -587,7 +620,7 @@ void ren(struct rend d) {
 
 void init() {
     reset();
-    reset();
+  //  reset();
 #if defined(_WIN32)
     win();
 #endif
@@ -597,12 +630,31 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
     UINT message, WPARAM wParam, LPARAM lParam) {
 
     // if (message == WM_KEYDOWN) printf("%c", wParam);
+    if (message == WM_KEYDOWN && wParam == '1') move(us.playing, house, 0);
+    if (message == WM_KEYDOWN && wParam == '2') move(us.playing, yard, 0);
+    if (message == WM_KEYDOWN && wParam == '3') move(us.playing, street, 0);
+    if (message == WM_KEYDOWN && wParam == '4') move(us.playing, town, 0);
+    if (message == WM_KEYDOWN && wParam == 'S') say("asdfg!");
     if (message == WM_KEYDOWN && wParam == 'R') reset();
+    if (message == WM_KEYDOWN && wParam == VK_ESCAPE) quit = 1;
+    if (message == WM_KEYDOWN && wParam == VK_BACK) {
+        SetForegroundWindow(window_handle);
+        SetFocus(window_handle);
+    }
+    if (message == WM_KEYDOWN && wParam == VK_RETURN)
+    {
+        SetForegroundWindow(consoleWindow);
+        SetFocus(consoleWindow);
+        g.mode = text;
+    }
     if (message == WM_KEYDOWN && wParam == 'Q') ch.t.loc.y -= 111.;
     if (message == WM_KEYDOWN && wParam == 'E') ch.t.loc.y += 111.;
     if (message == WM_KEYDOWN && wParam == 'T') { clear(); get(); }
-    if (message == WM_KEYDOWN && wParam == 'F') 
-        spawn((struct actor) { "box" }, street);
+    if (message == WM_KEYDOWN && wParam == 'F')
+        spawn((struct actor) {
+        "box", .type = item
+
+    }, street);
     if (message == WM_KEYDOWN && wParam == 'X') 
     {
         g.scale += 1; g.scale = 1 + g.scale % 16; 
@@ -686,6 +738,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
     frame_device_context = CreateCompatibleDC(0);
 
     console();
+    consoleWindow = GetConsoleWindow();
     window_handle = CreateWindow(window_class_name, L"screen", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
         11, 333, 999, 333, NULL, NULL, hInstance, NULL);
     if (window_handle == NULL) { return -1; }
@@ -719,12 +772,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
         InvalidateRect(window_handle, NULL, FALSE);
         UpdateWindow(window_handle);
         ShowCursor(0);
-        char buff[64];
-        sprintf(buff, "Role places (Weird shapes) F%i W%i:%i M%i:%i %iC-%i %zu\231 ",
+        char buff[128];
+        ULONGLONG milliseconds = GetTickCount64();
+        sprintf(buff, "Role places (Weird shapes) F%i W%i:%i M%i:%i %iC-%i %zu %lu ",
             g.frame, frame.width, frame.height, us.x, us.y,
             si.dwNumberOfProcessors, 
             si.wProcessorArchitecture,
-                sizeof(void*)*8
+                sizeof(void*)*8, milliseconds
         );
         SetWindowTextA(window_handle, buff);
        // if (g.frame % 113 == 0) { clear();  get(); }

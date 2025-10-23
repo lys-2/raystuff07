@@ -1,11 +1,11 @@
-#define UNICODE
-#define _UNICODE
+
 #define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include "lib.h"
 #define db double
 #define ln long long
 #define AC 4096
@@ -61,11 +61,14 @@ enum mount { skate, bike, scooter };
 
 struct v4 { double x, y, z, w; };
 struct v3 { double x, y, z; };
+struct rt { double p, r, y; };
 struct color { unsigned char r, g, b, a; };
 struct point { struct v3 p; struct color c; db u, v; };
 struct triangle { struct point a, b, c; };
 struct v2 { double x, y; };
-struct tf { struct v3 loc, rot, scale; };
+struct uv { double u, v; };
+struct trace { bool is_hit; ln id; db dst; struct v3 loc; struct v3 n; struct uv uv; };
+struct tf { struct v3 loc, scale; struct rt rot; };
 struct tr { double x, y, z, p, r, yw, sx, sy, sz; };
 struct v3 ro = { .0,.0,-1. };
 struct v3 rt = { 11.,31.,-21. };
@@ -267,7 +270,7 @@ struct actor scene[22] = {
   //  {.name = "sphere", item, .t = {0.,0.,0.,0.,0.,0.,11111.,11111.,11111.}},
   // {.name = "sphere", item, .t = {0.,0.,0.,0.,0.,0.,22222.,111.,22222.}},
     {.name = "sphere", item, .t = {0.,0.,0.,0.,0.,0.,111.,111.,111.}},
-    {.name = "plane", item, .t = {0.,0.,0.,0.,0.,0.,1.,1.,1.}},
+    {.name = "plane", item, .t = {0.,0.,0.,0.,1.,0.,1.,1.,1.}},
 
     //  {.name = "dungeon", place, .parent = town},
 };
@@ -351,9 +354,9 @@ void get() {
         ch.t.loc.x,
         ch.t.loc.y,
         ch.t.loc.z,
-        ch.t.rot.x,
-        ch.t.rot.y,
-        ch.t.rot.z
+        ch.t.rot.p,
+        ch.t.rot.r,
+        ch.t.rot.y
 
     );
     printf("SEL::%i::%s[%i], %i/%iHP\n",
@@ -438,6 +441,24 @@ void mode(enum mode m) {
 
     }
 };
+struct trace trace(struct v3 loc, struct v3 dir) {
+    struct trace t = {0};
+
+    for (ln a = 0; a < g.renc; a++) {
+        int id = g.ren[a];
+        db dist = 0.;
+        struct rt v = g.s[id].t.rot;
+        if (!strcmp(g.s[id].name, "plane")) {
+            dist = plane(loc, dir, (struct v4) { v.p, v.r, v.y, 0. });
+            t = (struct trace){ dist, a, true }; return t;
+        }
+        if (!strcmp(g.s[id].name, "sphere")) {}
+
+
+    }
+
+    return t;
+}
 void delete(int what) { g.s[what].taken = 0; };
 void play(int id) {
     if (us.is_playing) delete(g.u[g.session].playing);
@@ -581,8 +602,8 @@ void clears(int i) {
     frame.pixels[2 + i * 4] = 0.;
 }
 void ren(struct rend d) {
-        double x = ch.t.rot.x;
-        double y = ch.t.rot.y;
+        double x = ch.t.rot.p;
+        double y = ch.t.rot.r;
     int p, dx, dy;
     db a;
 
@@ -603,8 +624,8 @@ void ren(struct rend d) {
             0., 0., -1.
         },
             (struct v3) {
-            ch.t.rot.y / 111. + (dy - (dy / 2)) / 2222.,
-                ch.t.rot.x / 111. - (dx - (dx / 2)) / 2222.,
+            ch.t.rot.r / 111. + (dy - (dy / 2)) / 2222.,
+                ch.t.rot.p / 111. - (dx - (dx / 2)) / 2222.,
                 0.,
         });
 
@@ -617,18 +638,14 @@ void ren(struct rend d) {
                 hit = plane(
                     subv(ch.t.loc, g.s[id].t.loc),
                     vc,
-                    (struct v4) {r.x,1.,0.,0.} 
+                    (struct v4) {0.,1.,0.,0.} 
             );
             if (hit>.0) frame.pixels[1 + p * 4] += (ln)(hit*11.);
 
                 }
             if (!strcmp(g.s[id].name, "sphere")) {
 
-                struct v4 r = sphere(
-                    ch.t.loc,
-                    vc,
-                    g.s[id].t.scale
-                );
+                struct v4 r = sphere(ch.t.loc,vc,g.s[id].t.scale);
                 if ((ln)r.x != -1) {
 
                     frame.pixels[1 + p * 4] = (ln)((r.y + 1.) * 111.);
@@ -637,15 +654,13 @@ void ren(struct rend d) {
                 }
             }
 
-            if (circle((struct v2) {
-                dx - g.s[id].t.loc.x,
-                    dy - g.s[id].t.loc.y
-            }, g.s[id].t.scale.x) < 1.)
-            {
-             //   frame.pixels[2 + p * 4] = 255;
-              //  draw_point2d(dx, dy, (struct color) {255,255,0,255});
-                ;
-            }
+            //if (circle((struct v2) { dx - g.s[id].t.loc.x,dy - g.s[id].t.loc.y
+            //}, g.s[id].t.scale.x) < 1.)
+            //{
+            //    frame.pixels[2 + p * 4] = 255;
+            //   draw_point2d(dx, dy, (struct color) {255,255,0,255});
+            //    ;
+            //}
 
             if (g.s[id].type != place) { continue; }
             if (box((struct v2) {
@@ -658,6 +673,10 @@ void ren(struct rend d) {
             }
 
         }
+
+        struct trace t; t = trace(ch.t.loc, vc);
+       // if (t.is_hit) draw_point2d(dx, dy, (struct color) { 0, 255 });
+
     }
     
     }
@@ -742,8 +761,8 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
     if (LOWORD(lParam) == x && HIWORD(lParam) == y)
         { break; }
 
-    ch.t.rot.y -= (HIWORD(lParam)- y)/12.;
-    ch.t.rot.x -= (LOWORD(lParam)- x)/12.;
+    ch.t.rot.r -= (HIWORD(lParam)- y)/12.;
+    ch.t.rot.p -= (LOWORD(lParam)- x)/12.;
 
     SetCursorPos(pt.x, pt.y);
 
@@ -753,6 +772,38 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
 
         device_context = BeginPaint(window_handle, &paint);
        // if (g.frame%4 == 1) 
+        RECT r = { 0,0,999,111 };
+        RECT r1 = { 0,24,999,111 };
+        RECT r2;
+        RECT r3 = { 0,48,999,111 };
+        RECT r4 = { 0,72,999,111 };
+        char s[128];
+        char s2[128];
+
+        unsigned char s1[128];
+        wchar_t st[123];
+        for (ln a = 33; a < 128; a++) s[a - 33] = a;
+        for (ln a = 128; a < 255; a++) s1[a-128] = a;
+        HFONT font = CreateFont(24, 0, 0, 0, FW_NORMAL, 0, 0, 0,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+            CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+            DEFAULT_PITCH, L"Comic Sans MS");
+        SelectObject(frame_device_context, font);
+        SetTextColor(frame_device_context, RGB(0, 255, 0));
+        SetBkMode(frame_device_context, TRANSPARENT);
+        DrawTextA(frame_device_context, &s, -1, &r, DT_WORDBREAK | DT_LEFT | DT_TOP);
+        DrawTextA(frame_device_context, &s1, -1, &r1, 0);
+        DrawTextA(frame_device_context, "|", 1, &r2, DT_CALCRECT | DT_NOPREFIX);
+        swprintf(st, sizeof(st) / sizeof(st[0]), L"%s ", str);
+
+        sprintf(s2, "SEL::%i::%s[%i], %i/%iHP", ch.select,
+            sl.name,
+            sl.lvl,
+            sl.hp,
+            sl.lvl * 10 );
+        DrawTextW(frame_device_context, &st, -1, &r3, 0);
+        DrawTextA(frame_device_context, &s2, -1, &r4, 0);
+
         BitBlt(device_context,
             paint.rcPaint.left,
             paint.rcPaint.top,
@@ -761,6 +812,7 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
             frame_device_context,
             paint.rcPaint.left, paint.rcPaint.top,
             SRCCOPY);
+
         EndPaint(window_handle, &paint);
     } break;
 
@@ -811,6 +863,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
     SYSTEM_INFO si;
     GetSystemInfo(&si);
 
+
     while (!quit) {
 
         while (PeekMessage(&message, NULL, 0, 0, PM_REMOVE)) { DispatchMessage(&message); }
@@ -835,6 +888,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
                 sizeof(void*)*8
         );
         SetWindowTextA(window_handle, buff);
+
        // if (g.frame % 113 == 0) { clear();  get(); }
         g.frame++;
         // Sleep(1);

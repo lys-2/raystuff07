@@ -1,11 +1,14 @@
-
 #define _CRT_SECURE_NO_WARNINGS
+
 #include <windows.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+
 #include "lib.h"
+#pragma comment(lib, "Ws2_32.lib")
+
 #define db double
 #define ln long long
 #define AC 4096
@@ -34,6 +37,9 @@ static MSG message;
 static unsigned int p = 0;
 HANDLE hConsole;
 HWND consoleWindow;
+
+struct sockaddr_in c;
+SOCKET ListenSocket;
 
 void console() {
     FILE* conin = stdin;
@@ -297,13 +303,14 @@ struct user u_lib[16] = {
 #define ch g.s[us.playing]
 #define sl g.s[ch.select]
 struct state {
+
     bool is_mouse_back, is_draw; enum smode sm; enum mode mode;
     ln time, started;
     int id, users, actors, requests, session,
         uc, ac, is_auth, frame, scale, reset, ren[AC], renc, log_c;
     struct user u[8];
     struct actor s[AC];
-    char log[4][64], req[64], name[16], b[255];
+    char log[4][64], req[64], name[16], b[255], msg[64];
     unsigned short sound[24000 * 4];
     struct color screen[1024 * 512];
     struct color font[16*16*8*8];
@@ -681,8 +688,47 @@ void ren(struct rend d) {
     
     }
 
-void init() {
+void serv() {
 
+    WSADATA wsaData;
+    WSAStartup(MAKEWORD(2, 2), &wsaData);
+
+    char buff[512];
+    SOCKET ListenSocket; int st, sz;
+    struct sockaddr_in a, b; sz = sizeof(a);
+    a.sin_family = AF_INET;
+    a.sin_port = htons(12345);
+    a.sin_addr.s_addr = htonl(INADDR_ANY);
+    
+   // inet_pton(AF_INET, "127.0.0.1", &c.sin_addr.s_addr);
+    say("serv");
+    ListenSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (ListenSocket >= 0)  { say("listen");  }
+    st = bind(ListenSocket, (SOCKADDR*)&a, sizeof(a));
+    if (st >= 0)  { say("bind");  }
+    while (1) {
+       st =  recvfrom(ListenSocket, g.msg, sizeof(buff),
+            0, (SOCKADDR*)&b, &sz);
+       if (st >= 0) printf("recv %i \n", st);
+       else printf("recv %d \n", WSAGetLastError());
+    }
+    
+}
+void cli() {
+
+    c.sin_family = AF_INET;
+    c.sin_port = htons(12345);
+    inet_pton(AF_INET, "127.0.0.1", &c.sin_addr.s_addr);
+
+    SOCKET ListenSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    int st;
+    char buff[512] = "1234\r\n";
+    st  = sendto(ListenSocket, buff, sizeof(buff), 0,
+        (SOCKADDR*)&c, sizeof(SOCKADDR));
+    printf("sent %i ", st);
+}
+
+void init() {
     reset();
   //  reset();
 #if defined(_WIN32)
@@ -695,7 +741,6 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
     UINT message, WPARAM wParam, LPARAM lParam) {
 
    // mode(first);
-
 
     if (message == WM_KEYDOWN && wParam == '1') move(us.playing, house, 0);
     if (message == WM_KEYDOWN && wParam == '2') move(us.playing, yard, 0);
@@ -725,6 +770,7 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
     if (message == WM_KEYDOWN && wParam == 'Q') ch.t.loc.y -= 111.;
     if (message == WM_KEYDOWN && wParam == 'E') ch.t.loc.y += 111.;
     if (message == WM_KEYDOWN && wParam == 'T') { clear(); get(); }
+    if (message == WM_KEYDOWN && wParam == 'V') { cli(); }
 
     if (message == WM_KEYDOWN && wParam == 'X') 
     {
@@ -796,11 +842,11 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
         DrawTextA(frame_device_context, "|", 1, &r2, DT_CALCRECT | DT_NOPREFIX);
         swprintf(st, sizeof(st) / sizeof(st[0]), L"%s ", str);
 
-        sprintf(s2, "SEL::%i::%s[%i], %i/%iHP", ch.select,
+        sprintf(s2, "SEL::%i::%s[%i], %i/%iHP `%s`", ch.select,
             sl.name,
             sl.lvl,
             sl.hp,
-            sl.lvl * 10 );
+            sl.lvl * 10, g.msg );
         DrawTextW(frame_device_context, &st, -1, &r3, 0);
         DrawTextA(frame_device_context, &s2, -1, &r4, 0);
 
@@ -858,6 +904,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
     // Set the console screen buffer size
     init();
     CreateThread(0, 0, fun, 0, 0, 0);
+
+    CreateThread(0, 0, serv, 0, 0, 0);
+
     struct rend rn[16];
 
     SYSTEM_INFO si;

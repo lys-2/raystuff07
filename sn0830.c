@@ -38,8 +38,11 @@ static unsigned int p = 0;
 HANDLE hConsole;
 HWND consoleWindow;
 
+WSADATA wsaData;
+SOCKET ListenSocket, cli;
 struct sockaddr_in c;
-SOCKET ListenSocket;
+int sz = sizeof(c);
+char buff[10]; int st;
 
 void console() {
     FILE* conin = stdin;
@@ -310,7 +313,7 @@ struct state {
         uc, ac, is_auth, frame, scale, reset, ren[AC], renc, log_c;
     struct user u[8];
     struct actor s[AC];
-    char log[4][64], req[64], name[16], b[255], msg[64];
+    char log[4][64], req[64], name[16], b[255], msg[512];
     unsigned short sound[24000 * 4];
     struct color screen[1024 * 512];
     struct color font[16*16*8*8];
@@ -690,42 +693,32 @@ void ren(struct rend d) {
 
 void serv() {
 
-    WSADATA wsaData;
-    WSAStartup(MAKEWORD(2, 2), &wsaData);
-
-    char buff[512];
-    SOCKET ListenSocket; int st, sz;
-    struct sockaddr_in a, b; sz = sizeof(a);
+    struct sockaddr_in a, b; 
     a.sin_family = AF_INET;
     a.sin_port = htons(12345);
     a.sin_addr.s_addr = htonl(INADDR_ANY);
     
-   // inet_pton(AF_INET, "127.0.0.1", &c.sin_addr.s_addr);
-    say("serv");
     ListenSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (ListenSocket >= 0)  { say("listen");  }
+    if (ListenSocket >= 0) 
     st = bind(ListenSocket, (SOCKADDR*)&a, sizeof(a));
-    if (st >= 0)  { say("bind");  }
+    if (st >= 0)  
     while (1) {
-       st =  recvfrom(ListenSocket, g.msg, sizeof(buff),
-            0, (SOCKADDR*)&b, &sz);
-       if (st >= 0) printf("recv %i \n", st);
-       else printf("recv %d \n", WSAGetLastError());
+       st =  recvfrom(ListenSocket, g.msg, 8, 0, (SOCKADDR*)&b, &sz);
+       printf("recv %i %d \n\n", st, WSAGetLastError());
     }
     
 }
-void cli() {
+void client() {
 
-    c.sin_family = AF_INET;
-    c.sin_port = htons(12345);
-    inet_pton(AF_INET, "127.0.0.1", &c.sin_addr.s_addr);
-
-    SOCKET ListenSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    int st;
-    char buff[512] = "1234\r\n";
-    st  = sendto(ListenSocket, buff, sizeof(buff), 0,
-        (SOCKADDR*)&c, sizeof(SOCKADDR));
-    printf("sent %i ", st);
+    cli = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    strcpy(buff, "12345678");
+    for (ln r = 0; r < 3; r++) {
+        st = sendto(cli, &buff, 8, 0, &c, &sz);
+        printf("%d sent %i %d \n", r, st, WSAGetLastError());
+    }
+    // closesocket(cli);
+    // closesocket(ListenSocket);
+    // WSACleanup();
 }
 
 void init() {
@@ -770,7 +763,7 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
     if (message == WM_KEYDOWN && wParam == 'Q') ch.t.loc.y -= 111.;
     if (message == WM_KEYDOWN && wParam == 'E') ch.t.loc.y += 111.;
     if (message == WM_KEYDOWN && wParam == 'T') { clear(); get(); }
-    if (message == WM_KEYDOWN && wParam == 'V') { cli(); }
+    if (message == WM_KEYDOWN && wParam == 'V') { client(); }
 
     if (message == WM_KEYDOWN && wParam == 'X') 
     {
@@ -842,7 +835,7 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
         DrawTextA(frame_device_context, "|", 1, &r2, DT_CALCRECT | DT_NOPREFIX);
         swprintf(st, sizeof(st) / sizeof(st[0]), L"%s ", str);
 
-        sprintf(s2, "SEL::%i::%s[%i], %i/%iHP `%s`", ch.select,
+        sprintf(s2, "S::%i::%s[%i], %i/%iHP `%s`", ch.select,
             sl.name,
             sl.lvl,
             sl.hp,
@@ -897,21 +890,25 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
 
     console();
     consoleWindow = GetConsoleWindow();
+    SetWindowPos(consoleWindow, 0, 33, 33, 777, 333, 0);
     window_handle = CreateWindow(window_class_name, L"screen", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
         11, 333, 999, 333, NULL, NULL, hInstance, NULL);
     if (window_handle == NULL) { return -1; }
-    // SetWindowPos(window_handle, 0, 111, 111, 512, 256, 0);
+
     // Set the console screen buffer size
     init();
     CreateThread(0, 0, fun, 0, 0, 0);
 
+    WSAStartup(MAKEWORD(2, 2), &wsaData);
+    c.sin_family = AF_INET;
+    c.sin_port = htons(12345);
+    inet_pton(AF_INET, "127.0.0.1", &c.sin_addr.s_addr);
     CreateThread(0, 0, serv, 0, 0, 0);
 
     struct rend rn[16];
 
     SYSTEM_INFO si;
     GetSystemInfo(&si);
-
 
     while (!quit) {
 

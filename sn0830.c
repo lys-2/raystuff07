@@ -77,7 +77,7 @@ struct triangle { struct point a, b, c; };
 struct v2 { double x, y; };
 struct uv { double u, v; };
 struct trace { bool is_hit; ln id; db dst; struct v3 loc; struct v3 n; struct uv uv; };
-struct tf { struct v3 loc, scale; struct rt rot; };
+struct tf { struct v3 loc, scale; struct v3 rot; };
 struct tr { double x, y, z, p, r, yw, sx, sy, sz; };
 struct v3 ro = { .0,.0,-1. };
 struct v3 rt = { 11.,31.,-21. };
@@ -90,6 +90,7 @@ struct v3 addv(struct v3 a, struct v3 b) { return (struct v3) { a.x + b.x, a.y +
 struct v2 subv2(struct v2 a, struct v2 b) { return (struct v2) { a.x - b.x, a.y - b.y}; };
 struct v3 subv(struct v3 a, struct v3 b) { return (struct v3) { a.x - b.x, a.y - b.y, a.z - b.z }; };
 struct v3 muls(struct v3 a, double b) { return (struct v3) { a.x* b, a.y* b, a.z* b }; };
+struct v3 divs(struct v3 a, double b) { return (struct v3) { a.x/ b, a.y/ b, a.z/ b }; };
 struct v3 mulv(struct v3 a, struct v3 b) { return (struct v3) { a.x* b.x, a.y* b.y, a.z* b.z }; };
 struct v3 divv(struct v3 a, struct v3 b) { return (struct v3) { a.x/ b.x, a.y/ b.y, a.z/ b.z }; };
 struct v3 norm(struct v3 a) { return muls(a, (1 / sqrt(a.x * a.x + a.y * a.y + a.z * a.z))); };
@@ -102,6 +103,11 @@ struct v3 cross(struct v3 a, struct v3 b) {
         a.y* b.z - a.z * b.y, a.z* b.x - a.x * b.z, a.x* b.y - a.y * b.x
     };
 };
+struct v3 right(struct v3 v) {
+    return norm(cross((struct v3) { 0.0, 1.0, 0.0 }, v));
+}
+struct v3 up(struct v3 v) { return cross(v, right(v)); }
+
 float rand2(double id) {
     return sin(dot2((struct v2) { id, 1.},
         (struct v2) {127.1, 311.7})) * 43758.5453;
@@ -136,8 +142,8 @@ struct m3 mmm(struct m3 a, struct m3 b) {
 
 struct m3 yawm(double a) {
     return (struct m3) {
-        { cos(a), -sin(a), 0. },
-        { sin(a), cos(a), 0. },
+        { cos(a), sin(a), 0. },
+        { -sin(a), cos(a), 0. },
         { .0, .0, 1. }
     };
 };
@@ -151,8 +157,8 @@ struct m3 pitchm(double a) {
 struct m3 rollm(double a) {
     return (struct m3) {
         { 1., 0., 0. },
-        { .0, cos(a), -sin(a) },
-        { .0, sin(a), cos(a) }
+        { .0, cos(a), sin(a) },
+        { .0, -sin(a), cos(a) }
     };
 };
 
@@ -169,7 +175,7 @@ struct m3 rotm(double a, double b, double c) {
 };
 
 struct m3 rtm(struct v3 r) {
-    return mmm(mmm(yawm(r.z), pitchm(r.y)), rollm(r.x));
+    return mmm(mmm(rollm(r.z), pitchm(r.y)), yawm(r.x));
 };
 struct v3 rot(struct v3 ro, struct v3 rt) { return mmv(rotm(rt.x, rt.y, rt.z), ro); }
 
@@ -253,6 +259,31 @@ struct v4 sphere(struct v3 ro, struct v3 rd, struct v3 r)
      n = norm( divv(addv(muls(rd, t), ro), r2));
     return (struct v4) { t, n.x, n.y, n.z };
 }
+
+float ter(float x, float z) {
+    return
+        (sin(x / 111.) * 2.) +
+        (sin(z / 1111.) * 345.) +
+        (sin(z / 11111.) * 222.) +
+        (sin(x / 234.) * 123.) +
+        (sin(x / 1111.) * 222.)
+        ;
+}
+
+
+struct v4 march(struct v3 ro, struct v3 rd)
+{
+    for (float t = 0.; t < 123.; t++)
+    {
+        struct v3 p = muls(muls(addv(ro, rd), t), t);
+        if (p.y < ter(p.x, p.z))
+        {
+            return (struct v4) { 1., p.x, p.y, p.z };
+        }
+    }
+    return (struct v4){0.};
+}
+
 
 struct actor {
     char name[17], type, age, class, gen, lvl, stack, taken, text[128],
@@ -364,9 +395,9 @@ void get() {
         ch.t.loc.x,
         ch.t.loc.y,
         ch.t.loc.z,
-        ch.t.rot.p,
-        ch.t.rot.r,
-        ch.t.rot.y
+        ch.t.rot.x,
+        ch.t.rot.y,
+        ch.t.rot.z
 
     );
     printf("SEL::%i::%s[%i], %i/%iHP\n",
@@ -457,9 +488,9 @@ struct trace trace(struct v3 loc, struct v3 dir) {
     for (ln a = 0; a < g.renc; a++) {
         int id = g.ren[a];
         db dist = 0.;
-        struct rt v = g.s[id].t.rot;
+        struct v3 v = g.s[id].t.rot;
         if (!strcmp(g.s[id].name, "plane")) {
-            dist = plane(loc, dir, (struct v4) { v.p, v.r, v.y, 0. });
+            dist = plane(loc, dir, (struct v4) { v.x, v.y, v.z, 0. });
             t = (struct trace){ dist, a, true }; return t;
         }
         if (!strcmp(g.s[id].name, "sphere")) {}
@@ -469,7 +500,7 @@ struct trace trace(struct v3 loc, struct v3 dir) {
 
     return t;
 }
-void delete(int what) { g.s[what].taken = 0; };
+void delete(int a) { g.s[a].taken = 0; };
 void play(int id) {
     if (us.is_playing) delete(g.u[g.session].playing);
     g.u[g.session].playing = spawn(g.u[g.session].character[id], street,
@@ -478,7 +509,7 @@ void play(int id) {
     g.u[g.session].slot = id;
     g.u[g.session].is_playing = true;
 };
-void sel(int what) {
+void sel(int a) {
     ch.select++; ch.select %= g.renc;
 };
 void move(int what, int where, int channel) {
@@ -518,7 +549,7 @@ void reset() {
 
     play(0);
     //ch.t.rot = (struct v3){ 0.,0.,0. };
-    ch.t.loc = (struct v3){221.,221.,44.};
+    ch.t.loc = (struct v3){0.,0.,0.};
     g.sm = copied;
     g.scale = 11;
 };
@@ -593,6 +624,7 @@ void ren2() {
         );
     }
 
+
     for (ln r = 0; r < g.renc; r++) {
         int a = g.ren[r];
         draw_point2d(g.s[a].t.loc.x,
@@ -603,6 +635,7 @@ void ren2() {
             ring(g.s[a].t.loc.x, g.s[a].t.loc.y, 17., (struct color) {255,0,255,255});
         }
 
+
     }
 
 }
@@ -612,16 +645,19 @@ void clears(int i) {
     frame.pixels[2 + i * 4] = 0.;
 }
 void ren(struct rend d) {
-        double x = ch.t.rot.p;
-        double y = ch.t.rot.r;
+
+    double x = ch.t.rot.x;
+    double y = ch.t.rot.y;
     int p, dx, dy;
     db a;
+   // ro = ch.t.loc;
 
      for (ln i = 0; i < frame.width * frame.height ; i++) {
          clears(i);
      }
 
     for (ln px = 0; px < frame.width * frame.height/ d.th; px++) {
+
         p = px * d.th;
         a = p / frame.width / 2222.;
         struct v3 r, vc;
@@ -629,17 +665,37 @@ void ren(struct rend d) {
         dy = floor(p / frame.width);
         dx = floor(p % frame.width);
 
-        vc = rot(
+        //vc = rot(
+        //    (struct v3) {
+        //    0., 0., -1.
+        //},
+        //    (struct v3) {
+        //    ch.t.rot.x / 111. + (dy - (dy / 2)) / 2222.,
+        //        ch.t.rot.y / 111. - (dx - (dx / 2)) / 2222.,
+        //        0.,
+        //});
+
+        struct v3 f = rot((struct v3) { 0., -1., 0. },
             (struct v3) {
-            0., 0., -1.
-        },
-            (struct v3) {
-            ch.t.rot.r / 111. + (dy - (dy / 2)) / 2222.,
-                ch.t.rot.p / 111. - (dx - (dx / 2)) / 2222.,
-                0.,
+            us.y / 111.,
+                us.x / 111.,
+                0.
         });
+        ch.t.rot = f;
+        struct v3 cen = addv(ch.t.loc, muls(f, 1.18));
+        struct v3 i = addv(cen,
+            addv
+            (muls(right(f), dx / 111.),
+                muls(up(f), dy / 111.)));
+
+        struct v3 rd = norm(subv(i, ch.t.loc));
+
+        struct v4 m = march(ch.t.loc, rd);
+        draw_point2d(dx, dy, (struct color) { 0, rd.y*255, rd.x * 255, 255 });
+        if (m.x > 0.) draw_point2d(dx, dy, (struct color) { m.z, m.y, 0, 255 });
 
         for (ln a = 0; a < g.renc; a++) {
+            continue;
             int id = g.ren[a];
             frame.pixels[p * 4] = 188.;
             
@@ -647,7 +703,7 @@ void ren(struct rend d) {
                 struct v3 r = {0.};
                 hit = plane(
                     subv(ch.t.loc, g.s[id].t.loc),
-                    vc,
+                    rd,
                     (struct v4) {0.,1.,0.,0.} 
             );
             if (hit>.0) frame.pixels[1 + p * 4] += (ln)(hit*11.);
@@ -655,7 +711,7 @@ void ren(struct rend d) {
                 }
             if (!strcmp(g.s[id].name, "sphere")) {
 
-                struct v4 r = sphere(ch.t.loc,vc,g.s[id].t.scale);
+                struct v4 r = sphere(ch.t.loc,rd,g.s[id].t.scale);
                 if ((ln)r.x != -1) {
 
                     frame.pixels[1 + p * 4] = (ln)((r.y + 1.) * 111.);
@@ -675,7 +731,7 @@ void ren(struct rend d) {
             if (g.s[id].type != place) { continue; }
             if (box((struct v2) {
                 dx - g.s[id].t.loc.x,
-                    dy - g.s[id].t.loc.y
+                dy - g.s[id].t.loc.y
             }, (struct v2) { g.s[id].t.scale.x,g.s[id].t.scale.y}) < 3.)
             {
                 draw_point2d(dx, dy, (struct color) { 255, 0, 0, 255 });
@@ -684,7 +740,7 @@ void ren(struct rend d) {
 
         }
 
-        struct trace t; t = trace(ch.t.loc, vc);
+      //  struct trace t; t = trace(ch.t.loc, rd);
        // if (t.is_hit) draw_point2d(dx, dy, (struct color) { 0, 255 });
 
     }
@@ -703,7 +759,7 @@ void serv() {
     st = bind(ListenSocket, (SOCKADDR*)&a, sizeof(a));
     if (st >= 0)  
     while (1) {
-       st =  recvfrom(ListenSocket, g.msg, 8, 0, (SOCKADDR*)&b, &sz);
+       st =  recvfrom(ListenSocket, g.msg, 8, 0, &b, &sz);
        printf("recv %i %d \n\n", st, WSAGetLastError());
     }
     
@@ -711,9 +767,9 @@ void serv() {
 void client() {
 
     cli = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    strcpy(buff, "12345678");
+    strcpy(&buff, "12345678");
     for (ln r = 0; r < 3; r++) {
-        st = sendto(cli, &buff, 8, 0, &c, &sz);
+        st = sendto(cli, &buff, 8, 0, &c, sz);
         printf("%d sent %i %d \n", r, st, WSAGetLastError());
     }
     // closesocket(cli);
@@ -742,11 +798,13 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
     if (message == WM_KEYDOWN && wParam == 'R') reset();
     if (message == WM_KEYDOWN && wParam == 'G') sel(0);
     if (message == WM_RBUTTONDOWN && g.mode == ui)
-        spawn((struct actor) { "ring" }, street, (struct v3) { us.x, us.y });
+     //   spawn((struct actor) { "ring" }, street, (struct v3) { us.x, us.y });
+        ch.t.loc = (struct v3){ us.x, us.y };
     if (message == WM_LBUTTONDOWN && g.mode==ui)
     {
         spawn((struct actor) { "ring" }, street, (struct v3) { us.x, us.y });
         g.is_draw = 1;
+        printf("use ");
     }
     if (message == WM_LBUTTONUP) g.is_draw = 0;
     if (message == WM_KEYDOWN && wParam == VK_ESCAPE) quit = 1;
@@ -760,8 +818,8 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
         SetFocus(consoleWindow);
         g.mode = text;
     }
-    if (message == WM_KEYDOWN && wParam == 'Q') ch.t.loc.y -= 111.;
-    if (message == WM_KEYDOWN && wParam == 'E') ch.t.loc.y += 111.;
+    if (message == WM_KEYDOWN && wParam == 'Q') ch.t.loc.y -= 1.;
+    if (message == WM_KEYDOWN && wParam == 'E') ch.t.loc.y += 1.;
     if (message == WM_KEYDOWN && wParam == 'T') { clear(); get(); }
     if (message == WM_KEYDOWN && wParam == 'V') { client(); }
 
@@ -785,23 +843,20 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
 
     case WM_MOUSEMOVE: {
 
-    us.x = LOWORD(lParam);
-    us.y = frame.height-HIWORD(lParam);
-
     int x = frame.width / 2;
     int y = frame.height / 2;
+    us.x = LOWORD(lParam);
+    us.y = frame.height - HIWORD(lParam);
+
     POINT pt;
         pt.x = x; 
         pt.y = y;
-
     ClientToScreen(window_handle, &pt);
     if (g.mode != first) break;
 
     if (LOWORD(lParam) == x && HIWORD(lParam) == y)
         { break; }
 
-    ch.t.rot.r -= (HIWORD(lParam)- y)/12.;
-    ch.t.rot.p -= (LOWORD(lParam)- x)/12.;
 
     SetCursorPos(pt.x, pt.y);
 
@@ -830,18 +885,28 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
         SelectObject(frame_device_context, font);
         SetTextColor(frame_device_context, RGB(0, 255, 0));
         SetBkMode(frame_device_context, TRANSPARENT);
+
+        sprintf(s, "R%f %f %f %f %f %f",
+            ch.t.rot.x, ch.t.rot.y, ch.t.rot.z,
+            ch.t.loc.x, ch.t.loc.y, ch.t.loc.z
+        );
         DrawTextA(frame_device_context, &s, -1, &r, DT_WORDBREAK | DT_LEFT | DT_TOP);
-        DrawTextA(frame_device_context, &s1, -1, &r1, 0);
-        DrawTextA(frame_device_context, "|", 1, &r2, DT_CALCRECT | DT_NOPREFIX);
+    //    DrawTextA(frame_device_context, &s1, -1, &r1, 0);
         swprintf(st, sizeof(st) / sizeof(st[0]), L"%s ", str);
 
-        sprintf(s2, "S::%i::%s[%i], %i/%iHP `%s`", ch.select,
+        sprintf(s2, "S::%i::%s[%i], `%s`", ch.select,
             sl.name,
             sl.lvl,
-            sl.hp,
-            sl.lvl * 10, g.msg );
+             g.msg );
         DrawTextW(frame_device_context, &st, -1, &r3, 0);
         DrawTextA(frame_device_context, &s2, -1, &r4, 0);
+
+        for (ln r = 0; r < g.renc; r++) {
+            int a = g.ren[r];
+
+            DrawTextA(frame_device_context, g.s[a].name, 1, &r, DT_CALCRECT | DT_NOPREFIX);
+        }
+
 
         BitBlt(device_context,
             paint.rcPaint.left,

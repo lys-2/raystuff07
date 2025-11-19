@@ -9,53 +9,169 @@
 
 #define ln long long
 #define serv_port 23456
+#define msg_len 256
 
 ln f;
 enum platform {win, lin, and};
 
-struct player {
-    bool taken;
-    char addr[16], name[16], pin[4];
-    int req, port, x, y, rot;
+enum class { warrior, mage, rogue };
+struct actor {
+    char name[32];
+    int lvl;
 };
 
-struct base { 
+enum location { dungeon, woods, road, town };
+char cnames[2][msg_len] = {  "warrior", "mage" };
+char lnames[4][msg_len] = { "dungeon", "woods", "road", "town" };
+struct actor beasts[8] = {
+    {"mold"},
+    {"blob"},
+    {"wasps"},
+    {"rats"},
+    {"elemental"},
+    {"magic frost wolf"},
+    {"mechabear"},
+    {"ghost dragon"},
+};
+
+struct player {
+    bool taken;
+    char addr[16];
+    char name[16], pin[4];
+    enum class class;
+    enum location location;
+    bool map[4], beasts[8];
+    int req, port, x, y, rot, lvl, exp, hp;
+};
+
+struct base {
     bool is_logged;
     int player, count, requests;
-    char req[64], resp[64], input[64];
-    struct player players[32];
+    char req[msg_len], resp[msg_len], input[msg_len];
+    struct player players[64];
 };
 struct base d;
 
-int get_room() { 
+int get_room(char a[16], int p) {
     for (ln i = 0; i < 64; i++) {
-        if (!d.players[i].taken) { return i; };
-        return -1;
-}};
+        if (d.players[i].port == p && d.players[i].taken)
+            {
+                return i;
+            }
+    }
+    return -1;
+}
 
-void join() {};
-void leave() {};
-void get() {};
-void say() {};
-void move() {};
-void req(char m[64]) { strcpy(&d.req, m); };
-char* process(char m[64]) {
+int empty_room() { 
+    for (ln i = 0; i < 64; i++) {
+        if (d.players[i].taken==false) { return i; };
+}
+    return -1;
+};
 
-    char st[16];
+int get_max_hp(int id) { return get_lvl(id)*4; };
+int get_lvl(int id) { return 1 + d.players[id].exp / 1000; };
+
+int join(char a[16], int p, char n[16]) {
+    int room = empty_room();
+    if (room != -1)
+    {
+        strcpy(a, d.players[room].addr);
+        d.players[room].port = p;
+        d.players[room].taken = true;
+        d.players[room].lvl = 1;
+        d.players[room].hp = get_max_hp(room);
+        d.count++;
+        return room;
+    }
+    return -1;
+};
+
+void leave(int i) {
+    d.players[i].taken == false;
+};
+
+void req(char m[msg_len]) { strcpy(&d.req, m); };
+char* resp(int id, char m[16]) {
+    sprintf(&d.resp,
+        "ID::%i/%i reqs:%i, \nL%i(%c)/ex%i HP%i/%i M%i|%i\n (%i)%s",
+        id, d.count, d.requests,
+        get_lvl(id),
+        cnames[d.players[id].class][0],
+        d.players[id].exp,
+        d.players[id].hp,
+        get_max_hp(id),
+        d.players[id].x,
+        d.players[id].y,
+        d.players[id].location,
+        lnames[d.players[id].location]
+    );
+    strcat(&d.resp, "\n");
+    strcat(&d.resp, m);
+    return d.resp;
+};
+int respawn(int id) { 
+    d.players[id].exp = 0;
+    d.players[id].x = 0;
+    d.players[id].y = 0;
+    d.players[id].hp = get_max_hp(id);
+
+};
+
+int fight_spawn(int id, int beast) {
+    if (rand() % 11 == 0) d.players[id].hp-=beast;
+    if (d.players[id].hp <= 0) { respawn(id); }
+
+    int l1;
+    l1 = get_lvl(id);
+    if (d.players[id].exp < 4000)
+    d.players[id].exp += 10 * beast;
+    if (l1 != get_lvl(id)) d.players[id].hp = get_max_hp(id);
+    return beast;
+};
+
+char* process(char m[msg_len], char a[16], int p) {
+
+    int room;
+    room = get_room(a, p);
+
+    if (room == -1) { room = join(a, p, "player"); }
+    if (room == -1) { return "We are full.."; }
+
+    char st[msg_len], st2[msg_len];
     int i, i2, res;
     d.requests++;
-    sprintf(&d.resp, "%i reqs, %i players ID::%i",
-        d.requests, d.count, d.player);
 
-    if (m[0] == 'p') { return "Pong! "; }
+    if (m[0] == 'p') { 
+        return  resp(room, "Pong!");;
+    }
+
     if (sscanf(m, "m|%i|%i" , &i, &i2) == 2) { 
-        sprintf(&st, "\n%M %i %i", i, i2);
-        return strcat(&d.resp, &st);
+        d.players[room].x = i;
+        d.players[room].y = i2;
+        d.players[room].location = (i / 78)%4;
+        if (rand()%8==0) {
+            char f[64];
+            int beast = fight_spawn(room, rand() % 8);
+            sprintf(f, "Fought `|%s(%i)!", beasts[beast].name, beast);
+            return resp(room, f);
+        }
+
+        return resp(room, "moved..");
     }
+
     if (m[0] == 'g') { 
-        return d.resp;
+        return resp(room, "");
     }
-    if (m[0] == 's') { sprintf(&d.resp, "You say ..");  return d.resp; }
+
+    if (m[0] == 'l') {
+        leave(room);
+        return "Bye!";
+    }
+
+    if (sscanf(m, "s|%[^\n]", &st) == 1) {
+        return resp(room, st);
+    }
     if (m[0] == 'n') { return "Welcome! ID:%i "; }
     d.requests--;
     return ":?";
@@ -70,8 +186,8 @@ char* process(char m[64]) {
 char sys[8] = "windows";
 enum platform plat = win;
 static bool quit = false;
-char buff[64]; int st;
-char msg[64];
+char buff[msg_len]; int st;
+char msg[msg_len];
 
 struct frame {
     int width;
@@ -89,7 +205,7 @@ static HWND window_handle;
 static MSG message;
 HANDLE hConsole;
 HWND consoleWindow;
-
+RECT rect = { 0,2,999,111 };
 
 WSADATA wsaData;
 SOCKET ListenSocket, cli;
@@ -119,7 +235,7 @@ void clears(int i) {
 void input() {
     while (1) {
 
-        int s = scanf("%64s", d.input);
+        fgets(d.input, sizeof(d.input), stdin);
         req(d.input);
         Sleep(11);
     }
@@ -137,7 +253,7 @@ void serv() {
         st = bind(ListenSocket, (SOCKADDR*)&a, sizeof(a));
     if (st >= 0)
         while (1) {
-            st = recvfrom(ListenSocket, &msg, 64, 0, &b, &sz);
+            st = recvfrom(ListenSocket, &msg, msg_len, 0, &b, &sz);
             printf("Windows recv %i %d %s from %s:%d\n",
                 st, WSAGetLastError(), &msg,
                 inet_ntoa(b.sin_addr),
@@ -156,21 +272,21 @@ cli_start() {
 }
 
 
-void client(char msg[64], char* addr, int port) {
+void client(char msg[msg_len], char* addr, int port) {
     c.sin_family = AF_INET;
     c.sin_port = htons(port);
     inet_pton(AF_INET, addr, &c.sin_addr.s_addr);
 
     strcpy(&buff, msg);
-    st = sendto(cli, &buff, 64, 0, &c, sz);
+    st = sendto(cli, &buff, msg_len, 0, &c, sz);
     printf("sock%d  %s sent %i %d to %s %i\n", cli, 
         &buff, st, WSAGetLastError(), addr, port);
 
-    char b[64];
+    char b[msg_len];
 
     while (1) {
         
-        st = recvfrom(cli, &b, 64, 0, &from, &sz);
+        st = recvfrom(cli, &b, msg_len, 0, &from, &sz);
         //printf("%s got %i %d from %s %i\n", &msg, st, WSAGetLastError());
         if (st > 0) {
             printf("sock%d, M::%s from %s:%d, %d \n",
@@ -180,7 +296,7 @@ void client(char msg[64], char* addr, int port) {
             strcpy(&d.resp, &b);
         }
         if (d.req[0] != 0) {
-            st = sendto(cli, &d.req, 64, 0, &c, sz);
+            st = sendto(cli, &d.req, msg_len, 0, &c, sz);
             printf("sock%d  %s sent %i %d to %s %i\n", cli,
                 &d.req, st, WSAGetLastError(), addr, port);
             d.req[0] = 0;
@@ -193,11 +309,7 @@ void client(char msg[64], char* addr, int port) {
     //WSACleanup();
 }
 
-
 void sl(int s) { Sleep(s); }
-
-
-
 
 LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
     UINT message, WPARAM wParam, LPARAM lParam) {
@@ -227,8 +339,7 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
     case WM_PAINT: {
 
         device_context = BeginPaint(window_handle, &paint);
-        
-        RECT rect = { 0,2,999,111 };
+
         DrawTextA(frame_device_context, &d.resp, -1, &rect, 0);
 
         BitBlt(device_context,
@@ -281,14 +392,14 @@ struct timeval timeout;
 
 void cli_start() { cli = socket(AF_INET, SOCK_DGRAM, 0); }
 
-    void client(char msg[64], char addr[16], int port) {
+    void client(char msg[msg_len], char addr[16], int port) {
 
         memset(&client_addr, 0, sizeof(client_addr));
         client_addr.sin_family = AF_INET;
         client_addr.sin_port = htons(port);
         client_addr.sin_addr.s_addr = inet_addr(addr);
 
-        sendto(cli, msg, 64, 0,
+        sendto(cli, msg, msg_len, 0,
             (const struct sockaddr*)&client_addr, sizeof(client_addr));
         printf("%s message sent to %s:%d \n", msg,
             inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
@@ -299,7 +410,7 @@ void cli_start() { cli = socket(AF_INET, SOCK_DGRAM, 0); }
 
         struct sockaddr_in server_addr, client_addr;
         socklen_t client_len = sizeof(client_addr);
-        char buffer[64];
+        char buffer[msg_len];
         ssize_t bytes_received;
 
         // Create UDP socket
@@ -322,22 +433,27 @@ void cli_start() { cli = socket(AF_INET, SOCK_DGRAM, 0); }
         }
         printf("UDP Server listening on port %d...\n", serv_port);
 
+        char a[16];
+        int p;
+
         while (1) {
             // Receive data from client
 
             // memset(&client_addr, 0, sizeof(client_addr));
 
             client_len = sizeof(client_addr);
-            bytes_received = recvfrom(serv, buffer, 64, 0,
+            bytes_received = recvfrom(serv, buffer, msg_len, 0,
                &client_addr, &client_len);
 
             buffer[bytes_received] = '\0'; // Null-terminate the received data
+            strcpy(a, inet_ntoa(client_addr.sin_addr));
+            p = ntohs(client_addr.sin_port);
 
-            printf("sock%d Received from %s:%d: %s\n", serv,
-                inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port), buffer);
+            printf("sock%d Received from %s:%d: %s\n", serv, a, p, buffer);
 
-            strcpy(buffer, process(buffer));
-            sendto(serv, buffer, 64, 0,
+            strcpy(buffer, process(buffer, a, p));
+
+            sendto(serv, buffer, msg_len, 0,
                 (const struct sockaddr*)&client_addr, sizeof(client_addr));
             printf("sock%d %s message sent to %s:%d \n", serv, buffer,
                 inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
@@ -354,7 +470,7 @@ void cli_start() { cli = socket(AF_INET, SOCK_DGRAM, 0); }
 
 #endif
 
-void cmsg(char msg[64], char* addr, int port) {
+void cmsg(char msg[msg_len], char* addr, int port) {
         client(msg, addr, port);
  };
 
@@ -374,7 +490,12 @@ void cli_loop() {
     if (plat == win) { cmsg("ping ", "93.95.97.124", serv_port); }
 
 }
-void loop() {}
+void rpc() { 
+    while (1) {
+        req("get!");
+        sl(1000);
+    }
+}
 
 #if defined(_WIN32)
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
@@ -394,7 +515,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
     console();
     consoleWindow = GetConsoleWindow();
-    SetWindowPos(consoleWindow, 0, 33, 33, 777, 333, 0);
+    SetWindowPos(consoleWindow, 0, 33, 456, 777, 333, 0);
     window_handle = CreateWindow(window_class_name, L"screen", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
         222, 222, 333, 211, NULL, NULL, hInstance, NULL);
     if (window_handle == NULL) { return -1; }
@@ -414,9 +535,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
     CreateThread(0, 0, cli_loop, 0, 0, 0);
     CreateThread(0, 0, input, 0, 0, 0);
+    CreateThread(0, 0, rpc, 0, 0, 0);
 
-    SetForegroundWindow(consoleWindow);
-    SetFocus(consoleWindow);
+   // SetForegroundWindow(consoleWindow);
+   // SetFocus(consoleWindow);
 
     while (!quit) {
 
@@ -431,7 +553,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         }
 
         sprintf(buff, "title");
-        SetWindowTextA(window_handle, "title");
+        SetWindowTextA(window_handle, "~~~~~~~~~~~~~~~~");
         InvalidateRect(window_handle, NULL, FALSE);
         UpdateWindow(window_handle);
         Sleep(0);
@@ -444,6 +566,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 #if defined(__linux__)
 int main() {
     init();
-    while (true) { loop(); };
+    while (true) { };
     }
 #endif

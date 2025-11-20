@@ -14,15 +14,33 @@
 ln f;
 enum platform {win, lin, and};
 
-enum class { warrior, mage, rogue };
-struct actor {
-    char name[32];
-    int lvl;
+struct color {
+    unsigned char r;
+    unsigned char g;
+    unsigned char b;
+    unsigned char a;
 };
 
-enum location { dungeon, woods, road, town };
-char cnames[2][msg_len] = {  "warrior", "mage" };
-char lnames[4][msg_len] = { "dungeon", "woods", "road", "town" };
+enum class { fighter, mage, rogue, weapon, armor };
+struct actor {
+    char name[32];
+    enum class class;
+    int lvl;
+    bool is_taken;
+};
+struct item {
+    char name[32];
+    enum class class;
+    int lvl;
+    bool is_taken;
+};
+
+enum location { dungeon, woods, road, town, tavern };
+char cnames[3][msg_len] = { "fighter", "mage", "rogue" };
+
+struct actor places[6] = {
+    {"dungeon"}, {"woods"}, {"road"}, {"town"}, {"tavern"}, {"tower"}
+};
 struct actor beasts[8] = {
     {"mold"},
     {"blob"},
@@ -33,15 +51,31 @@ struct actor beasts[8] = {
     {"mechabear"},
     {"ghost dragon"},
 };
+struct actor items[8] = {
+    {"box"},
+    {"stick"},
+    {"potion"},
+    {"elixir"},
+    {"coin"},
+    {"base set"},
+    {"ruby"}
+};
+struct actor skills[8] = {
+    {"vigor", fighter, 1},
+    {"fire arrow", mage, 1},
+    {"sneak", rogue, 1}
+};
 
 struct player {
     bool taken;
+
     char addr[16];
-    char name[16], pin[4];
+    char name[16], pin[4], mail[64], phone[16], twitch[16];
     enum class class;
     enum location location;
     bool map[4], beasts[8];
-    int req, port, x, y, rot, lvl, exp, hp;
+    struct item inventory[8];
+    int req, port, x, y, rot, lvl, exp, hp, resp;
 };
 
 struct base {
@@ -69,7 +103,7 @@ int empty_room() {
     return -1;
 };
 
-int get_max_hp(int id) { return get_lvl(id)*4; };
+int get_max_hp(int id) { return 3+get_lvl(id)*4; };
 int get_lvl(int id) { return 1 + d.players[id].exp / 1000; };
 
 int join(char a[16], int p, char n[16]) {
@@ -91,11 +125,28 @@ void leave(int i) {
     d.players[i].taken == false;
 };
 
+char invs[64];
+void inv(int id) {
+    memset(&invs, 0, strlen(invs));
+    for (ln i = 0; i < 8; i++) {
+        if (d.players[id].inventory[i].is_taken) {
+            strcat(&invs, d.players[id].inventory[i].name[0]);
+            strcat(&invs, " ");
+        }
+        else strcat(&invs, "_ ");
+    }
+    return;
+};
+
+
 void req(char m[msg_len]) { strcpy(&d.req, m); };
 char* resp(int id, char m[16]) {
+
+    inv(id);
     sprintf(&d.resp,
-        "ID::%i/%i reqs:%i, \nL%i(%c)/ex%i HP%i/%i M%i|%i\n (%i)%s",
+        "ID::%i/%i reqs:%i, \nR%i L%i(%c)/ex%i HP%i/%i M%i|%i\n%s \n(%i)%s",
         id, d.count, d.requests,
+        d.players[id].resp,
         get_lvl(id),
         cnames[d.players[id].class][0],
         d.players[id].exp,
@@ -103,8 +154,9 @@ char* resp(int id, char m[16]) {
         get_max_hp(id),
         d.players[id].x,
         d.players[id].y,
+        invs,
         d.players[id].location,
-        lnames[d.players[id].location]
+        places[d.players[id].location].name
     );
     strcat(&d.resp, "\n");
     strcat(&d.resp, m);
@@ -115,11 +167,13 @@ int respawn(int id) {
     d.players[id].x = 0;
     d.players[id].y = 0;
     d.players[id].hp = get_max_hp(id);
+    d.players[id].class = rand() % 3;
+    d.players[id].resp++;
 
 };
 
 int fight_spawn(int id, int beast) {
-    if (rand() % 11 == 0) d.players[id].hp-=beast;
+    if (rand() % 11 == 0) d.players[id].hp-=beast+(2*beast*rand()%20==0);
     if (d.players[id].hp <= 0) { respawn(id); }
 
     int l1;
@@ -149,8 +203,9 @@ char* process(char m[msg_len], char a[16], int p) {
     if (sscanf(m, "m|%i|%i" , &i, &i2) == 2) { 
         d.players[room].x = i;
         d.players[room].y = i2;
-        d.players[room].location = (i / 78)%4;
-        if (rand()%8==0) {
+        d.players[room].location = (i/78)%4;
+        if (i2<76) d.players[room].location = tavern;
+        if (rand()%8==0 && d.players[room].location != tavern) {
             char f[64];
             int beast = fight_spawn(room, rand() % 8);
             sprintf(f, "Fought `|%s(%i)!", beasts[beast].name, beast);
@@ -205,7 +260,7 @@ static HWND window_handle;
 static MSG message;
 HANDLE hConsole;
 HWND consoleWindow;
-RECT rect = { 0,2,999,111 };
+RECT rect = { 0,0,444,222 };
 
 WSADATA wsaData;
 SOCKET ListenSocket, cli;
@@ -234,7 +289,7 @@ void clears(int i) {
 
 void input() {
     while (1) {
-
+        
         fgets(d.input, sizeof(d.input), stdin);
         req(d.input);
         Sleep(11);
@@ -339,7 +394,14 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
     case WM_PAINT: {
 
         device_context = BeginPaint(window_handle, &paint);
-
+        for (ln i = 0; i < frame.width * frame.height; i++) {
+            clears(i);
+        }
+        for (ln i = 0; i < frame.width * frame.height; i++) {
+            frame.pixels[1 + i * 4] = 0;
+            frame.pixels[i * 4] = i%222/3;
+            frame.pixels[2 + i * 4] = 11+i%222/3;
+        }
         DrawTextA(frame_device_context, &d.resp, -1, &rect, 0);
 
         BitBlt(device_context,
@@ -406,7 +468,7 @@ void cli_start() { cli = socket(AF_INET, SOCK_DGRAM, 0); }
 
     };
 
-    void serv_start() {
+void serv_start() {
 
         struct sockaddr_in server_addr, client_addr;
         socklen_t client_len = sizeof(client_addr);
@@ -456,7 +518,7 @@ void cli_start() { cli = socket(AF_INET, SOCK_DGRAM, 0); }
             sendto(serv, buffer, msg_len, 0,
                 (const struct sockaddr*)&client_addr, sizeof(client_addr));
             printf("sock%d %s message sent to %s:%d \n", serv, buffer,
-                inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+                a, p);
 
     }
 
@@ -540,6 +602,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
    // SetForegroundWindow(consoleWindow);
    // SetFocus(consoleWindow);
 
+
+    //HDC screen = GetDC(NULL);
+    //HBRUSH redBrush = CreateSolidBrush(RGB(255, 0, 0));
+
+    //HDC hdcMem = CreateCompatibleDC(screen); // hdc is the window's DC
+    //HBITMAP hbmMem = CreateCompatibleBitmap(screen, 500, 500); // width, height of client area
+    //SelectObject(hdcMem, hbmMem);
+
+    //Rectangle(hdcMem, 0, 0, 500, 500);
+    //BitBlt(screen, 0, 0, 500, 500, hdcMem, 0, 0, SRCCOPY);
+    //DeleteObject(hbmMem);
+    //DeleteDC(hdcMem);
+
     while (!quit) {
 
         while (PeekMessage(&message, NULL, 0, 0, PM_REMOVE))
@@ -548,12 +623,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         }
 
 
-        for (ln i = 0; i < frame.width * frame.height; i++) {
-            clears(i);
-        }
 
         sprintf(buff, "title");
-        SetWindowTextA(window_handle, "~~~~~~~~~~~~~~~~");
+        SetWindowTextA(window_handle, "snry rpg sn0831");
         InvalidateRect(window_handle, NULL, FALSE);
         UpdateWindow(window_handle);
         Sleep(0);

@@ -22,21 +22,30 @@ struct color {
 };
 
 enum class { fighter, mage, rogue, weapon, armor };
-struct actor {
-    char name[32];
+char cnames[3][32] = { "fighter", "mage", "rogue" };
+
+struct tag {
     enum class class;
-    int lvl;
+    char lvl;
     bool is_taken;
 };
+
 struct item {
     char name[32];
     enum class class;
-    int lvl;
+    int lvl, stack, dur;
+    bool is_taken;
+};
+
+struct actor {
+    char name[32];
+    enum class class;
+    int lvl, stack;
+    struct item inventory[8];
     bool is_taken;
 };
 
 enum location { dungeon, woods, road, town, tavern };
-char cnames[3][msg_len] = { "fighter", "mage", "rogue" };
 
 struct actor places[6] = {
     {"dungeon"}, {"woods"}, {"road"}, {"town"}, {"tavern"}, {"tower"}
@@ -51,7 +60,7 @@ struct actor beasts[8] = {
     {"mechabear"},
     {"ghost dragon"},
 };
-struct actor items[8] = {
+struct item items[8] = {
     {"box"},
     {"stick"},
     {"potion"},
@@ -68,14 +77,13 @@ struct actor skills[8] = {
 
 struct player {
     bool taken;
-
     char addr[16];
     char name[16], pin[4], mail[64], phone[16], twitch[16];
     enum class class;
     enum location location;
     bool map[4], beasts[8];
     struct item inventory[8];
-    int req, port, x, y, rot, lvl, exp, hp, resp;
+    int req, port, x, y, rot, lvl, exp, hp, resp, party[8];
 };
 
 struct base {
@@ -115,6 +123,7 @@ int join(char a[16], int p, char n[16]) {
         d.players[room].taken = true;
         d.players[room].lvl = 1;
         d.players[room].hp = get_max_hp(room);
+        sprintf(d.players[room].name, "Player%i", room);
         d.count++;
         return room;
     }
@@ -125,12 +134,21 @@ void leave(int i) {
     d.players[i].taken == false;
 };
 
+int has_item(int id, int i) {
+    for (ln i2 = 0; i2 < 8; i2++) {
+        if (d.players[id].inventory[i2].is_taken &&
+            !strcmp(d.players[id].inventory[i2].name, items[i].name))
+            return i2;
+    }
+    return -1;
+}
 char invs[64];
 void inv(int id) {
     memset(&invs, 0, strlen(invs));
     for (ln i = 0; i < 8; i++) {
         if (d.players[id].inventory[i].is_taken) {
-            strcat(&invs, d.players[id].inventory[i].name[0]);
+            strcat(&invs, d.players[id].inventory[i].name);
+            strcat(&invs, "|");
             strcat(&invs, " ");
         }
         else strcat(&invs, "_ ");
@@ -138,11 +156,17 @@ void inv(int id) {
     return;
 };
 
-
+enum message { get, say };
 void req(char m[msg_len]) { strcpy(&d.req, m); };
-char* resp(int id, char m[16]) {
+char* resp(int id, char m[msg_len], enum message t) {
+
+    if (t == say) { 
+        sprintf(&d.resp, "s|%i|%s", id, m);
+        return d.resp;
+    };
 
     inv(id);
+    strcat(&d.resp, "g|");
     sprintf(&d.resp,
         "ID::%i/%i reqs:%i, \nR%i L%i(%c)/ex%i HP%i/%i M%i|%i\n%s \n(%i)%s",
         id, d.count, d.requests,
@@ -173,8 +197,10 @@ int respawn(int id) {
 };
 
 int fight_spawn(int id, int beast) {
-    if (rand() % 11 == 0) d.players[id].hp-=beast+(2*beast*rand()%20==0);
+    if (rand() % 11 == 0) d.players[id].hp-=beast+(3*beast*rand()%20==0);
     if (d.players[id].hp <= 0) { respawn(id); }
+    d.players[id].inventory[0] = items[1];
+    d.players[id].inventory[0].is_taken = true;
 
     int l1;
     l1 = get_lvl(id);
@@ -195,9 +221,10 @@ char* process(char m[msg_len], char a[16], int p) {
     char st[msg_len], st2[msg_len];
     int i, i2, res;
     d.requests++;
+  //  memset(&d.resp, 0, strlen(d.resp));
 
     if (m[0] == 'p') { 
-        return  resp(room, "Pong!");;
+        return  resp(room, "Pong!", get);;
     }
 
     if (sscanf(m, "m|%i|%i" , &i, &i2) == 2) { 
@@ -209,14 +236,14 @@ char* process(char m[msg_len], char a[16], int p) {
             char f[64];
             int beast = fight_spawn(room, rand() % 8);
             sprintf(f, "Fought `|%s(%i)!", beasts[beast].name, beast);
-            return resp(room, f);
+            return resp(room, f, get);
         }
 
-        return resp(room, "moved..");
+        return resp(room, "moved..", get);
     }
 
     if (m[0] == 'g') { 
-        return resp(room, "");
+        return resp(room, "", get);
     }
 
     if (m[0] == 'l') {
@@ -225,7 +252,7 @@ char* process(char m[msg_len], char a[16], int p) {
     }
 
     if (sscanf(m, "s|%[^\n]", &st) == 1) {
-        return resp(room, st);
+        return resp(room, st, say);
     }
     if (m[0] == 'n') { return "Welcome! ID:%i "; }
     d.requests--;
@@ -258,7 +285,7 @@ const wchar_t window_class_name[] = L"My Window Class";
 static WNDCLASS window_class;
 static HWND window_handle;
 static MSG message;
-HANDLE hConsole;
+HANDLE hConsole, hConsole2;
 HWND consoleWindow;
 RECT rect = { 0,0,444,222 };
 
@@ -268,6 +295,7 @@ struct sockaddr_in c, from;
 int sz = sizeof(c);
 
 void console() {
+
     FILE* conin = stdin;
     FILE* conout = stdout;
     FILE* conerr = stderr;
@@ -277,6 +305,8 @@ void console() {
     freopen_s(&conout, "CONOUT$", "w", stdout);
     freopen_s(&conerr, "CONOUT$", "w", stderr);
     SetConsoleTitleA("console ");
+    consoleWindow = GetConsoleWindow();
+    SetWindowPos(consoleWindow, 0, 33, 456, 777, 333, 0);
 }
 
 void clear() { system("cls"); }
@@ -288,10 +318,15 @@ void clears(int i) {
 }
 
 void input() {
+
+    char i[msg_len];
+
     while (1) {
-        
-        fgets(d.input, sizeof(d.input), stdin);
-        req(d.input);
+        memset(&i, 0, strlen(i));
+        strcat(&i, "s|");
+        fgets(&d.input, sizeof(d.input), stdin);
+        strcat(&i, &d.input);
+        req(i);
         Sleep(11);
     }
 };
@@ -334,9 +369,6 @@ void client(char msg[msg_len], char* addr, int port) {
 
     strcpy(&buff, msg);
     st = sendto(cli, &buff, msg_len, 0, &c, sz);
-    printf("sock%d  %s sent %i %d to %s %i\n", cli, 
-        &buff, st, WSAGetLastError(), addr, port);
-
     char b[msg_len];
 
     while (1) {
@@ -344,16 +376,23 @@ void client(char msg[msg_len], char* addr, int port) {
         st = recvfrom(cli, &b, msg_len, 0, &from, &sz);
         //printf("%s got %i %d from %s %i\n", &msg, st, WSAGetLastError());
         if (st > 0) {
-            printf("sock%d, M::%s from %s:%d, %d \n",
-                cli, b,
-                inet_ntoa(from.sin_addr),
-                ntohs(from.sin_port), st);
+            if (b[0] == 's') {
+                int i, s;
+                char m[msg_len];
+                s = sscanf(b, "s|%i|%s", &i, &m);
+                printf("%i`%s: %s\n", i, d.players[i].name, m);
+            }
+            else
+            //printf("sock%d, M::%s from %s:%d, %d \n",
+            //    cli, b,
+            //    inet_ntoa(from.sin_addr),
+            //    ntohs(from.sin_port), st);
             strcpy(&d.resp, &b);
         }
         if (d.req[0] != 0) {
             st = sendto(cli, &d.req, msg_len, 0, &c, sz);
-            printf("sock%d  %s sent %i %d to %s %i\n", cli,
-                &d.req, st, WSAGetLastError(), addr, port);
+  //          printf("sock%d  %s sent %i %d to %s %i\n", cli,
+  //&d.req, st, WSAGetLastError(), addr, port);
             d.req[0] = 0;
         }
         Sleep(0);
@@ -386,7 +425,6 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
 
         int x = LOWORD(lParam);
         int y = frame.height - HIWORD(lParam);
-        printf("MX%i, MY%i \n", x, y);
         sprintf(d.req, "m|%i|%i", x, y); req(d.req);
 
     } break;
@@ -414,6 +452,9 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
             SRCCOPY);
 
         EndPaint(window_handle, &paint);
+        InvalidateRect(window_handle, NULL, FALSE);
+        UpdateWindow(window_handle);
+
     } break;
 
     case WM_SIZE: {
@@ -515,11 +556,22 @@ void serv_start() {
 
             strcpy(buffer, process(buffer, a, p));
 
+            if (buffer[0] != 's') {
             sendto(serv, buffer, msg_len, 0,
                 (const struct sockaddr*)&client_addr, sizeof(client_addr));
-            printf("sock%d %s message sent to %s:%d \n", serv, buffer,
-                a, p);
+            printf("sock%d %s message sent to %s:%d \n", serv, buffer, a, p);
+            }
+            else
+            for (ln i = 0; i < 64; i++) {
+                if (d.players[i].taken == true) {
 
+                    inet_aton(d.players[i].addr, &client_addr.sin_addr);
+                    client_addr.sin_port = htons(d.players[i].port);
+                    sendto(serv, buffer, msg_len, 0,
+                        (const struct sockaddr*)&client_addr, sizeof(client_addr));
+                }
+            };
+            
     }
 
     };
@@ -537,7 +589,8 @@ void cmsg(char msg[msg_len], char* addr, int port) {
  };
 
 void init() { 
-    printf("Hello, %s!\n", sys);
+  //  printf("Hello, %s!\n", sys);
+    printf("Hello!\n");
     strcpy(&d.resp, "Hello! \n Connecting..");
     cli_start();
     if (plat == lin) { serv_start(); }
@@ -576,8 +629,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     frame_device_context = CreateCompatibleDC(0);
 
     console();
-    consoleWindow = GetConsoleWindow();
-    SetWindowPos(consoleWindow, 0, 33, 456, 777, 333, 0);
     window_handle = CreateWindow(window_class_name, L"screen", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
         222, 222, 333, 211, NULL, NULL, hInstance, NULL);
     if (window_handle == NULL) { return -1; }
@@ -598,6 +649,24 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     CreateThread(0, 0, cli_loop, 0, 0, 0);
     CreateThread(0, 0, input, 0, 0, 0);
     CreateThread(0, 0, rpc, 0, 0, 0);
+    STARTUPINFO si;
+    PROCESS_INFORMATION pi;
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    ZeroMemory(&pi, sizeof(pi));
+
+    //CreateProcessA(
+    //    NULL,   // No module name (use command line)
+    //    "cmd.exe",  // Command line
+    //    NULL,     // Process handle not inheritable
+    //    NULL,     // Thread handle not inheritable
+    //    FALSE,    // Set handle inheritance to FALSE
+    //    CREATE_NEW_CONSOLE,     // No creation flags
+    //    NULL,     // Use parent's environment block
+    //    NULL,     // Use parent's starting directory
+    //    &si,      // Pointer to STARTUPINFO structure
+    //    &pi);    // Pointer to PROCESS_INFORMATION structure
+
 
    // SetForegroundWindow(consoleWindow);
    // SetFocus(consoleWindow);
@@ -622,13 +691,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             DispatchMessage(&message);
         }
 
-
-
         sprintf(buff, "title");
         SetWindowTextA(window_handle, "snry rpg sn0831");
-        InvalidateRect(window_handle, NULL, FALSE);
-        UpdateWindow(window_handle);
-        Sleep(0);
+
+        Sleep(10);
     }
 
     return 0;

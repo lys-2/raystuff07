@@ -20,6 +20,14 @@ struct color {
     unsigned char b;
     unsigned char a;
 };
+struct line { char name[64], line[512]; };
+
+struct line story[1024] = {
+    // T A V E R N  -  Lines 1-250
+    {"NARRATOR", "INT. THE RUSTY FLAGON TAVERN – NIGHT"},
+    {"NARRATOR", "Rain drums on the thatched roof. Smoke hangs thick over tankards and tired faces."},
+
+};
 
 enum class { fighter, mage, rogue, weapon, armor };
 char cnames[3][32] = { "fighter", "mage", "rogue" };
@@ -33,14 +41,14 @@ struct tag {
 struct item {
     char name[32];
     enum class class;
-    int lvl, stack, dur;
+    int lvl, stack, dur, price;
     bool is_taken;
 };
 
 struct actor {
     char name[32];
+    int stack, lvl;
     enum class class;
-    int lvl, stack;
     struct item inventory[8];
     bool is_taken;
 };
@@ -60,15 +68,24 @@ struct actor beasts[8] = {
     {"mechabear"},
     {"ghost dragon"},
 };
-struct item items[8] = {
+struct item items[12] = {
+    {"coin"},
     {"box"},
     {"stick"},
     {"potion"},
     {"elixir"},
-    {"coin"},
     {"base set"},
-    {"ruby"}
+    {"ruby"},
+    {"plates", .is_taken = 1},
+    {"emerald", .stack = 3, .price = 100, .is_taken = 1}
 };
+
+struct item store[8] = {
+    {"coin", .stack= 1234, .is_taken=1},
+    {"plates", .stack = 14, .price = 8, .is_taken = 1, .class = armor},
+    {"emerald", .stack = 13, .price = 9, .is_taken = 1}
+};
+
 struct actor skills[8] = {
     {"vigor", fighter, 1},
     {"fire arrow", mage, 1},
@@ -83,7 +100,8 @@ struct player {
     enum location location;
     bool map[4], beasts[8];
     struct item inventory[8];
-    int req, port, x, y, rot, lvl, exp, hp, resp, party[8];
+    int req, port, x, y, rot, lvl, exp, hp, resp, party[8],
+        prog, hunt, select_a, select_b;
 };
 
 struct base {
@@ -134,6 +152,99 @@ void leave(int i) {
     d.players[i].taken == false;
 };
 
+char inv1[256], inv2[256];
+char* inv(int id) {
+
+    memset(&inv1, 0, strlen(inv1));
+    for (ln i = 0; i < 8; i++) {
+        if (d.players[id].select_a == i) strcat(&inv1, "|");
+        if (d.players[id].select_b == i) strcat(&inv1, "~");
+        if (d.players[id].inventory[i].is_taken) {
+            strcat(&inv1, d.players[id].inventory[i].name);
+            if (d.players[id].inventory[i].stack > 0) {
+                char s[16];
+                sprintf(&s, "[%i]", d.players[id].inventory[i].stack);
+                strcat(&inv1, s);
+            }
+            strcat(&inv1, ", ");
+        }
+        else strcat(&inv1, "_ ");
+    }
+    return inv1;
+};
+char* stores(int id) {
+
+    memset(&inv2, 0, strlen(inv2));
+    for (ln i = 0; i < 8; i++) {
+        if (d.players[id].select_a == i+8) strcat(&inv2, "|");
+        if (d.players[id].select_b == i+8) strcat(&inv2, "~");
+        char s[16];
+        if (store[i].is_taken) {
+            strcat(&inv2, store[i].name);
+            if (store[i].stack > 1) {
+                sprintf(&s, "[%i]", store[i].stack);
+                strcat(&inv2, s);
+            }
+            sprintf(&s, ":%i", store[i].price);
+            strcat(&inv2, s);
+            strcat(&inv2, ", ");
+        }
+        else strcat(&inv2, "_ ");
+    }
+    return inv2;
+};
+
+enum message { get, say, fight, item, level, place, new, gone };
+void req(char m[msg_len]) { strcpy(&d.req, m); };
+char* resp(int id, char m[msg_len], enum message t) {
+    sprintf(&d.resp, "%i|%i|%s", t, id, m);
+    if (t == get) {
+        inv(id);
+        stores(id);
+        sprintf(&d.resp,
+            "%s::%i/%i reqs:%i p:%i/256, \nR%i L%i(%c)/ex%i HP%i/%i M%i|%i\n%s \n%s \n(%i)%s",
+            d.players[id].name,
+            id, d.count, d.requests,
+            d.players[id].prog, 
+            d.players[id].resp,
+            get_lvl(id),
+            cnames[d.players[id].class][0],
+            d.players[id].exp,
+            d.players[id].hp,
+            get_max_hp(id),
+            d.players[id].x,
+            d.players[id].y,
+            inv1,
+            inv2,
+            d.players[id].location,
+            places[d.players[id].location].name
+        );
+        strcat(&d.resp, "\n");
+        strcat(&d.resp, m);
+        return d.resp;
+    };
+    return d.resp;
+};
+int respawn(int id) { 
+    struct player a = d.players[id];
+
+    int p = d.players[id].port;
+    d.players[id] = (struct player){ 0 };
+    d.players[id].hp = get_max_hp(id);
+    d.players[id].class = rand() % 3;
+    d.players[id].taken = true;
+    strcpy(d.players[id].addr, a.addr);
+    d.players[id].port = a.port;
+    d.players[id].resp=a.resp+1;
+};
+
+int name2i(char name[64]) {
+    for (ln i = 0; i < 12; i++) {
+        if (!strcmp(name, items[i].name)) return i;
+    }
+    return -1;
+}
+
 int has_item(int id, int i) {
     for (ln i2 = 0; i2 < 8; i2++) {
         if (d.players[id].inventory[i2].is_taken &&
@@ -142,65 +253,38 @@ int has_item(int id, int i) {
     }
     return -1;
 }
-char invs[64];
-void inv(int id) {
-    memset(&invs, 0, strlen(invs));
+
+int get_slot(int id) { 
     for (ln i = 0; i < 8; i++) {
-        if (d.players[id].inventory[i].is_taken) {
-            strcat(&invs, d.players[id].inventory[i].name);
-            strcat(&invs, "|");
-            strcat(&invs, " ");
-        }
-        else strcat(&invs, "_ ");
+        if (!d.players[id].inventory[i].is_taken) return i;
     }
-    return;
-};
+    return -1;
+}
 
-enum message { get, say };
-void req(char m[msg_len]) { strcpy(&d.req, m); };
-char* resp(int id, char m[msg_len], enum message t) {
-
-    if (t == say) { 
-        sprintf(&d.resp, "s|%i|%s", id, m);
-        return d.resp;
-    };
-
-    inv(id);
-    strcat(&d.resp, "g|");
-    sprintf(&d.resp,
-        "ID::%i/%i reqs:%i, \nR%i L%i(%c)/ex%i HP%i/%i M%i|%i\n%s \n(%i)%s",
-        id, d.count, d.requests,
-        d.players[id].resp,
-        get_lvl(id),
-        cnames[d.players[id].class][0],
-        d.players[id].exp,
-        d.players[id].hp,
-        get_max_hp(id),
-        d.players[id].x,
-        d.players[id].y,
-        invs,
-        d.players[id].location,
-        places[d.players[id].location].name
-    );
-    strcat(&d.resp, "\n");
-    strcat(&d.resp, m);
-    return d.resp;
-};
-int respawn(int id) { 
-    d.players[id].exp = 0;
-    d.players[id].x = 0;
-    d.players[id].y = 0;
-    d.players[id].hp = get_max_hp(id);
-    d.players[id].class = rand() % 3;
-    d.players[id].resp++;
-
-};
-
+int add_item(int id, int i, int c) {
+    int s = has_item(id, i);
+    int s2 = get_slot(id);
+    if (s > -1) d.players[id].inventory[s].stack+=c;
+    else if (s2 != -1) {
+        d.players[id].inventory[s2] = items[i];
+        d.players[id].inventory[s2].stack = c;
+        d.players[id].inventory[s2].price = i;
+        d.players[id].inventory[s2].is_taken = true;
+    }
+    return -1;
+}
+int rem_item(int id, int i, int c) {
+    int s = has_item(id, i);
+    if (s > -1) d.players[id].inventory[s].stack-=c;
+    if (!d.players[id].inventory[s].stack) {
+        d.players[id].inventory[s].is_taken = false;
+    }
+    }
 int fight_spawn(int id, int beast) {
-    if (rand() % 11 == 0) d.players[id].hp-=beast+(3*beast*rand()%20==0);
+    if (rand() % 11 == 0) d.players[id].hp-=(beast+(3*beast*rand()%20==0))*3;
     if (d.players[id].hp <= 0) { respawn(id); }
-    d.players[id].inventory[0] = items[1];
-    d.players[id].inventory[0].is_taken = true;
+    d.players[id].hunt++;
+    if (rand() % 20 == 0) add_item(id, rand() % 7, 1);
 
     int l1;
     l1 = get_lvl(id);
@@ -210,28 +294,32 @@ int fight_spawn(int id, int beast) {
     return beast;
 };
 
-char* process(char m[msg_len], char a[16], int p) {
+char* process(char m[msg_len], char ad[16], int p) {
 
     int room;
-    room = get_room(a, p);
+    room = get_room(ad, p);
 
-    if (room == -1) { room = join(a, p, "player"); }
+    if (room == -1) { room = join(ad, p, "player");
+                    return resp(room, "Join!", new); }
+
     if (room == -1) { return "We are full.."; }
 
     char st[msg_len], st2[msg_len];
-    int i, i2, res;
+    int a, b, res;
     d.requests++;
   //  memset(&d.resp, 0, strlen(d.resp));
 
     if (m[0] == 'p') { 
-        return  resp(room, "Pong!", get);;
+        return  resp(room, "Pong!", get);
     }
 
-    if (sscanf(m, "m|%i|%i" , &i, &i2) == 2) { 
-        d.players[room].x = i;
-        d.players[room].y = i2;
-        d.players[room].location = (i/78)%4;
-        if (i2<76) d.players[room].location = tavern;
+
+
+    if (sscanf(m, "m|%i|%i" , &a, &b) == 2) { 
+        d.players[room].x = a;
+        d.players[room].y = b;
+        d.players[room].location = (a/78)%4;
+        if (b<76) d.players[room].location = tavern;
         if (rand()%8==0 && d.players[room].location != tavern) {
             char f[64];
             int beast = fight_spawn(room, rand() % 8);
@@ -242,7 +330,71 @@ char* process(char m[msg_len], char a[16], int p) {
         return resp(room, "moved..", get);
     }
 
+    if (m[0] == 'a' && m[1] == 0) {
+        struct item a = d.players[room].inventory[d.players[room].select_a];
+        struct item b = d.players[room].inventory[d.players[room].select_b];
+        d.players[room].inventory[d.players[room].select_b] = a;
+        d.players[room].inventory[d.players[room].select_a] = b;
+            
+        return resp(room, "moved item ..", get);
+
+    }
+
+    if (sscanf(m, "a|%i|%i", &a, &b) == 2) {
+        d.players[room].inventory[b] =
+            d.players[room].inventory[a];
+        d.players[room].inventory[a] = (struct item) { 0 };
+        return resp(room, "moved item ..", get);
+    }
+
     if (m[0] == 'g') { 
+        return resp(room, "", get);
+    }
+
+    if (!strcmp(m, "sell")) {
+        if (d.players[room].select_a < 8 &&
+            d.players[room].inventory[d.players[room].select_a].is_taken
+            ) {
+            add_item(room, 0,
+                d.players[room].inventory[d.players[room].select_a].stack*
+                d.players[room].inventory[d.players[room].select_a].price
+            );
+            d.players[room].inventory[d.players[room].select_a] =
+                (struct item){ 0 };
+        }
+        return resp(room, "", get);
+    }
+
+    if (!strcmp(m, "buy")) {
+
+        int c = has_item(room, 0);
+        if (c > 0) c = d.players[room].inventory[c].stack;
+        if (
+            d.players[room].select_a >= 8 &&
+            store[d.players[room].select_a - 8].is_taken &&
+            c >= store[d.players[room].select_a - 8].price &&
+            strcmp(store[d.players[room].select_a - 8].name, "coin")
+            ) {
+
+            add_item(room, name2i(store[d.players[room].select_a - 8].name), 1);
+
+            store[d.players[room].select_a - 8].stack--;
+            if (!store[d.players[room].select_a - 8].stack)
+                store[d.players[room].select_a - 8] = (struct item){ 0 };
+            rem_item(room, 0, store[d.players[room].select_a - 8].price);
+        }
+        return resp(room, "", get);
+    }
+
+    if (m[0] == 'c') {
+        d.players[room].select_a++;
+        d.players[room].select_a %= 16;
+        return resp(room, "", get);
+    }
+
+    if (m[0] == 'v') {
+        d.players[room].select_b++;
+        d.players[room].select_b %=16;
         return resp(room, "", get);
     }
 
@@ -254,7 +406,7 @@ char* process(char m[msg_len], char a[16], int p) {
     if (sscanf(m, "s|%[^\n]", &st) == 1) {
         return resp(room, st, say);
     }
-    if (m[0] == 'n') { return "Welcome! ID:%i "; }
+
     d.requests--;
     return ":?";
 
@@ -287,7 +439,7 @@ static HWND window_handle;
 static MSG message;
 HANDLE hConsole, hConsole2;
 HWND consoleWindow;
-RECT rect = { 0,0,444,222 };
+RECT rect = { 0,0,777,222 };
 
 WSADATA wsaData;
 SOCKET ListenSocket, cli;
@@ -361,7 +513,6 @@ cli_start() {
     ioctlsocket(cli, FIONBIO, &iMode);
 }
 
-
 void client(char msg[msg_len], char* addr, int port) {
     c.sin_family = AF_INET;
     c.sin_port = htons(port);
@@ -376,13 +527,19 @@ void client(char msg[msg_len], char* addr, int port) {
         st = recvfrom(cli, &b, msg_len, 0, &from, &sz);
         //printf("%s got %i %d from %s %i\n", &msg, st, WSAGetLastError());
         if (st > 0) {
-            if (b[0] == 's') {
-                int i, s;
-                char m[msg_len];
-                s = sscanf(b, "s|%i|%s", &i, &m);
+            int i, s, p; enum message t;
+            char m[msg_len];
+            char q[msg_len], w[msg_len], e[msg_len];
+            s = sscanf(b, "%i|%i|%s", &t, &i, &m);
+            if (t == say && s == 3) {
                 printf("%i`%s: %s\n", i, d.players[i].name, m);
             }
+            if (t == new && s == 3) {
+                printf("%i joined!\n", i, d.players[i].name, m);
+            }
             else
+            //printf("%s: %s\n", story[d.players[i].prog].name,
+            //    story[d.players[i].prog].line);
             //printf("sock%d, M::%s from %s:%d, %d \n",
             //    cli, b,
             //    inet_ntoa(from.sin_addr),
@@ -393,6 +550,7 @@ void client(char msg[msg_len], char* addr, int port) {
             st = sendto(cli, &d.req, msg_len, 0, &c, sz);
   //          printf("sock%d  %s sent %i %d to %s %i\n", cli,
   //&d.req, st, WSAGetLastError(), addr, port);
+
             d.req[0] = 0;
         }
         Sleep(0);
@@ -410,8 +568,14 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
 
     // mode(first);
 
-    if (message == WM_KEYDOWN && wParam == 'W') req("up!");
+    if (message == WM_KEYDOWN && wParam == 'A') req("a");
     if (message == WM_KEYDOWN && wParam == 'G') req("get!");
+    if (message == WM_KEYDOWN && wParam == 'C') req("c");
+    if (message == WM_KEYDOWN && wParam == 'V') req("v");
+    if (message == WM_KEYDOWN && wParam == 'T') req("buy");
+    if (message == WM_KEYDOWN && wParam == 'Y') req("sell");
+
+
 
     // if (message == WM_KEYDOWN) { clear(); get(); }
 
@@ -452,12 +616,14 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
             SRCCOPY);
 
         EndPaint(window_handle, &paint);
+        SetWindowTextA(window_handle, "snry rpg sn0831");
         InvalidateRect(window_handle, NULL, FALSE);
-        UpdateWindow(window_handle);
+       // UpdateWindow(window_handle);
 
     } break;
 
     case WM_SIZE: {
+
         frame_bitmap_info.bmiHeader.biWidth = LOWORD(lParam);
         frame_bitmap_info.bmiHeader.biHeight = HIWORD(lParam);
 
@@ -553,10 +719,11 @@ void serv_start() {
             p = ntohs(client_addr.sin_port);
 
             printf("sock%d Received from %s:%d: %s\n", serv, a, p, buffer);
-
             strcpy(buffer, process(buffer, a, p));
 
-            if (buffer[0] != 's') {
+            if (
+                buffer[0] != '1'
+                ) {
             sendto(serv, buffer, msg_len, 0,
                 (const struct sockaddr*)&client_addr, sizeof(client_addr));
             printf("sock%d %s message sent to %s:%d \n", serv, buffer, a, p);
@@ -630,13 +797,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
     console();
     window_handle = CreateWindow(window_class_name, L"screen", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-        222, 222, 333, 211, NULL, NULL, hInstance, NULL);
+        222, 222, 789, 211, NULL, NULL, hInstance, NULL);
     if (window_handle == NULL) { return -1; }
 
     HFONT font = CreateFont(24, 0, 0, 0, FW_NORMAL, 0, 0, 0,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
         CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
-        DEFAULT_PITCH, L"Comic Sans MS");
+        DEFAULT_PITCH, L"Century Gothic");
     SelectObject(frame_device_context, font);
     SetTextColor(frame_device_context, RGB(0, 255, 0));
     SetBkMode(frame_device_context, TRANSPARENT);
@@ -692,9 +859,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         }
 
         sprintf(buff, "title");
-        SetWindowTextA(window_handle, "snry rpg sn0831");
-
-        Sleep(10);
+        Sleep(0);
     }
 
     return 0;

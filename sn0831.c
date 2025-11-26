@@ -47,7 +47,7 @@ struct item {
 
 struct actor {
     char name[32];
-    int stack, lvl;
+    int stack, lvl, x, y;
     enum class class;
     struct item inventory[8];
     bool is_taken;
@@ -77,7 +77,9 @@ struct item items[12] = {
     {"base set"},
     {"ruby"},
     {"plates", .is_taken = 1},
-    {"emerald", .stack = 3, .price = 100, .is_taken = 1}
+    {"emerald", .stack = 3, .price = 100, .is_taken = 1},
+    {"card"},
+    {"ring"}
 };
 
 struct item store[8] = {
@@ -91,6 +93,10 @@ struct actor skills[8] = {
     {"fire arrow", mage, 1},
     {"sneak", rogue, 1}
 };
+struct actor lib[8] = {
+    {"ring"},
+    {"card"},
+}; 
 
 struct player {
     bool taken;
@@ -105,12 +111,60 @@ struct player {
 };
 
 struct base {
+    struct color noise[255*255];
+    struct color tex[255*255];
     bool is_logged;
     int player, count, requests;
     char req[msg_len], resp[msg_len], input[msg_len];
     struct player players[64];
+    struct actor scene[16];
 };
 struct base d;
+
+struct color* screen;
+
+struct point { float x, y; };
+void point(struct color* tex, int w, int h, int x, int y) {
+    if (x >= 0 && x < w && y >= 0 && y < h)
+    tex[y*w+x].r = 255;
+}
+
+double lerp(double a, double b, double f) { return a * (1.0 - f) + (b * f); }
+void line(struct color* tex, int w, int h, struct point a, struct point b) {
+    int d = 123;
+    for (ln i = 0; i <= d; i++) {
+        point(tex, w, h, lerp(a.x, b.x, i / (double)d),
+            lerp(a.y, b.y, i / (double)d));
+    }
+}
+void card(struct color* tex, int w, int h, struct point o, int x, int y) {
+    line(screen, w, h, o, (struct point) {o.x+x,o.y});
+    line(screen, w, h, o, (struct point) {o.x,o.y+y});
+    line(screen, w, h, (struct point) {o.x+x,o.y}, (struct point) {o.x+x,o.y+y});
+    line(screen, w, h, (struct point) {o.x,o.y+y}, (struct point) {o.x+x,o.y+y});
+    line(screen, w, h, o, (struct point) {o.x+x,o.y+y});
+}
+void grid(struct color* tex, int w, int h, struct point o, int x, int y) {}
+
+struct point rot(struct point p, struct point c, float a) {
+    p.x -= c.x;
+    p.y -= c.y;
+    float x2 = p.x * cos(a) - p.y * sin(a);
+    float y2 = p.x * sin(a) + p.y * cos(a);
+    p.x = c.x + x2;
+    p.y = c.y + y2;
+    return p;
+};
+
+void ring(struct color* tex, int w, int h, struct point a, float r) {
+    int d = 123;
+    struct point o = a;
+    a.y += r;
+    for (int i = 0; i < d; i++) {
+        a = rot(a, o, .1*i);
+        point(tex, w, h, a.x,a.y);
+    }
+}
 
 int get_room(char a[16], int p) {
     for (ln i = 0; i < 64; i++) {
@@ -597,13 +651,35 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
 
         device_context = BeginPaint(window_handle, &paint);
         for (ln i = 0; i < frame.width * frame.height; i++) {
-            clears(i);
+            screen[i] = (struct color){ 0,0,0,0 };
         }
         for (ln i = 0; i < frame.width * frame.height; i++) {
-            frame.pixels[1 + i * 4] = 0;
-            frame.pixels[i * 4] = i%222/3;
-            frame.pixels[2 + i * 4] = 11+i%222/3;
+            int x = i%frame.width;
+            int y = i/frame.width;
+            screen[i].b = d.noise[x % 128 * y % 128].b;
+            screen[i].b /= x/456.;
         }
+        //for (ln i = 0; i < frame.width * frame.height; i++) {
+        //    point(screen, frame.width, frame.height, i, i);
+        //}
+
+        for (ln i = 0; i < 16; i++) {
+            if (!strcmp(d.scene[i].name, "card"))
+            card(screen, frame.width, frame.height,
+                (struct point){d.scene[i].x, d.scene[i].y},16,16);
+            if (!strcmp(d.scene[i].name, "ring"))
+                ring(screen, frame.width, frame.height,
+                    (struct point) { d.scene[i].x, d.scene[i].y }, 8);
+
+        }
+
+        for (ln i = 0; i < frame.width * frame.height; i++) {
+            frame.pixels[i * 4] = screen[i].b;
+            frame.pixels[1+i * 4] = screen[i].g;
+            frame.pixels[2+i * 4] = screen[i].r;
+            frame.pixels[3+i * 4] = screen[i].a;
+        }
+
         DrawTextA(frame_device_context, &d.resp, -1, &rect, 0);
 
         BitBlt(device_context,
@@ -633,6 +709,11 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
 
         frame.width = LOWORD(lParam);
         frame.height = HIWORD(lParam);
+
+        free(screen);
+        screen = (struct color*)malloc(LOWORD(lParam)* HIWORD(lParam)*
+            sizeof(struct color));
+
     } break;
 
     default: {
@@ -762,7 +843,16 @@ void init() {
     cli_start();
     if (plat == lin) { serv_start(); }
     if (plat == win) { cli_start(); }
-    
+
+    for (ln i = 0; i < 255 * 255; i++) {
+        d.noise[i] = (struct color){ rand(), rand(), rand() };
+    }
+    for (ln i = 0; i < 16; i++) {
+        d.scene[i] = lib[rand()%2];
+        d.scene[i].x = 456 + rand() % 111;
+        d.scene[i].y = 16+ rand() % 111;
+    }
+
 }
 
 

@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <time.h>
 
 #define ln long long
 #define serv_port 23456
@@ -114,6 +115,7 @@ struct base {
     struct color noise[255*255];
     struct color tex[255*255];
     bool is_logged;
+    double time;
     int player, count, requests;
     char req[msg_len], resp[msg_len], input[msg_len];
     struct player players[64];
@@ -166,9 +168,15 @@ void ring(struct color* tex, int w, int h, struct point a, float r) {
     }
 }
 
+
+
 int get_room(char a[16], int p) {
     for (ln i = 0; i < 64; i++) {
-        if (d.players[i].port == p && d.players[i].taken)
+        if (
+            d.players[i].port == p &&
+            !strcmp(d.players[i].addr, a) &&
+            d.players[i].taken
+            )
             {
                 return i;
             }
@@ -190,7 +198,7 @@ int join(char a[16], int p, char n[16]) {
     int room = empty_room();
     if (room != -1)
     {
-        strcpy(a, d.players[room].addr);
+        strcpy(d.players[room].addr, a);
         d.players[room].port = p;
         d.players[room].taken = true;
         d.players[room].lvl = 1;
@@ -354,9 +362,10 @@ char* process(char m[msg_len], char ad[16], int p) {
     room = get_room(ad, p);
 
     if (room == -1) { room = join(ad, p, "player");
+    if (room == -1) { return "We are full.."; }
                     return resp(room, "Join!", new); }
 
-    if (room == -1) { return "We are full.."; }
+
 
     char st[msg_len], st2[msg_len];
     int a, b, res;
@@ -366,8 +375,6 @@ char* process(char m[msg_len], char ad[16], int p) {
     if (m[0] == 'p') { 
         return  resp(room, "Pong!", get);
     }
-
-
 
     if (sscanf(m, "m|%i|%i" , &a, &b) == 2) { 
         d.players[room].x = a;
@@ -494,6 +501,7 @@ static MSG message;
 HANDLE hConsole, hConsole2;
 HWND consoleWindow;
 RECT rect = { 0,0,777,222 };
+HFONT font, font2;
 
 WSADATA wsaData;
 SOCKET ListenSocket, cli;
@@ -617,19 +625,37 @@ void client(char msg[msg_len], char* addr, int port) {
 
 void sl(int s) { Sleep(s); }
 
+STARTUPINFO si;
+PROCESS_INFORMATION pi;
 LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
     UINT message, WPARAM wParam, LPARAM lParam) {
 
     // mode(first);
 
     if (message == WM_KEYDOWN && wParam == 'A') req("a");
+    if (message == WM_KEYDOWN && wParam == 'Q')
+    {
+        ZeroMemory(&si, sizeof(si));
+        si.cb = sizeof(si);
+        ZeroMemory(&pi, sizeof(pi));
+        CreateProcessA(
+            NULL,   // No module name (use command line)
+            "sn_bar/sn25j.exe",  // Command line
+            NULL,     // Process handle not inheritable
+            NULL,     // Thread handle not inheritable
+            FALSE,    // Set handle inheritance to FALSE
+            CREATE_NEW_CONSOLE,     // No creation flags
+            NULL,     // Use parent's environment block
+            NULL,     // Use parent's starting directory
+            &si,      // Pointer to STARTUPINFO structure
+            &pi);    // Pointer to PROCESS_INFORMATION structure
+    }
+
     if (message == WM_KEYDOWN && wParam == 'G') req("get!");
     if (message == WM_KEYDOWN && wParam == 'C') req("c");
     if (message == WM_KEYDOWN && wParam == 'V') req("v");
     if (message == WM_KEYDOWN && wParam == 'T') req("buy");
     if (message == WM_KEYDOWN && wParam == 'Y') req("sell");
-
-
 
     // if (message == WM_KEYDOWN) { clear(); get(); }
 
@@ -673,6 +699,14 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
 
         }
 
+        for (ln i = 0; i < 64; i++) {
+            if (d.players[i].taken)
+                ring(screen, frame.width, frame.height,
+                    (struct point) {
+                d.players[i].x, d.players[i].y
+            }, 14);
+        }
+
         for (ln i = 0; i < frame.width * frame.height; i++) {
             frame.pixels[i * 4] = screen[i].b;
             frame.pixels[1+i * 4] = screen[i].g;
@@ -680,6 +714,25 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
             frame.pixels[3+i * 4] = screen[i].a;
         }
 
+        SelectObject(frame_device_context, font2);
+        SetTextColor(frame_device_context, RGB(0, 255, 0));
+        SetBkMode(frame_device_context, 2);
+        SetBkColor(frame_device_context, RGB(0, 0, 0));
+        for (ln i = 0; i < 16; i++) {
+
+            RECT r = {
+               22+d.scene[i].x ,
+              frame.height- d.scene[i].y-22,
+               22+d.scene[i].x + 111,
+                frame.height - d.scene[i].y-22 +24
+            };
+            DrawTextA(frame_device_context, d.scene[i].name, -1, &r, 0);
+
+        }
+
+        SelectObject(frame_device_context, font);
+        SetTextColor(frame_device_context, RGB(0, 255, 0));
+        SetBkMode(frame_device_context, TRANSPARENT);
         DrawTextA(frame_device_context, &d.resp, -1, &rect, 0);
 
         BitBlt(device_context,
@@ -855,7 +908,6 @@ void init() {
 
 }
 
-
 void cli_loop() { 
 
     f++; 
@@ -865,9 +917,71 @@ void cli_loop() {
 void rpc() { 
     while (1) {
         req("get!");
-        sl(1000);
+        clock_t c;
+        c = clock;
+        sl(4000);
     }
 }
+
+
+void files(char* d) {
+    char dir[128], dir2[128];
+    //GetCurrentDirectoryA(128, dir);
+    //printf("%s\n", dir);
+
+    HANDLE hFile;
+    //hFile = CreateFileA("theTest.txt",
+    //    GENERIC_WRITE | GENERIC_READ, 0, NULL,
+    //    OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    //hFile = CreateDirectoryA("theTest", NULL);
+
+    DWORD a = GetFileAttributesA(d);
+    if (a & FILE_ATTRIBUTE_DIRECTORY && a != INVALID_FILE_ATTRIBUTES) {
+        printf("Found a directory %s!\n", d);
+    }
+    else { printf("Dir not found( %s \n", d); return; }
+
+    WIN32_FIND_DATA FindFileData;
+    bool r = 0;
+    int n = 0;
+    strcpy(dir, d);
+    strcat(dir, "/*");
+    LARGE_INTEGER size;
+    hFile = FindFirstFileA(dir, &FindFileData);
+    size.HighPart = FindFileData.nFileSizeHigh;
+    size.LowPart = FindFileData.nFileSizeLow;
+    ln s = size.QuadPart;
+    if (
+        !strcmp(FindFileData.cFileName, ".") &&
+        !strcmp(FindFileData.cFileName, "..")
+        ) printf("The %i file found is %s %d\n", n, FindFileData.cFileName, s);
+    r = 1;
+    while (r) {
+        r = FindNextFileA(hFile, &FindFileData);
+        if (
+            !strcmp(FindFileData.cFileName, ".") ||
+            !strcmp(FindFileData.cFileName, "..")
+            ) continue;
+        n++;
+        size.HighPart = FindFileData.nFileSizeHigh;
+        size.LowPart = FindFileData.nFileSizeLow;
+        ln s = size.QuadPart;
+        if (
+            FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY && r) {
+            printf("DIR ");
+            strcpy(dir2, d);
+            strcat(dir2, "/");
+            strcat(dir2, FindFileData.cFileName);
+
+            files(dir2);
+            continue;
+
+        }
+        if (r) printf("The %i file found is %s %d\n", n, FindFileData.cFileName, s);
+
+    }
+}
+
 
 #if defined(_WIN32)
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
@@ -879,6 +993,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     window_class.lpszClassName = window_class_name;
     window_class.hCursor = LoadCursor(NULL, IDC_ARROW);
     RegisterClass(&window_class);
+
     frame_bitmap_info.bmiHeader.biSize = sizeof(frame_bitmap_info.bmiHeader);
     frame_bitmap_info.bmiHeader.biPlanes = 1;
     frame_bitmap_info.bmiHeader.biBitCount = 32;
@@ -890,13 +1005,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         222, 222, 789, 211, NULL, NULL, hInstance, NULL);
     if (window_handle == NULL) { return -1; }
 
-    HFONT font = CreateFont(24, 0, 0, 0, FW_NORMAL, 0, 0, 0,
+     font = CreateFont(24, 0, 0, 0, FW_NORMAL, 0, 0, 0,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
         CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
         DEFAULT_PITCH, L"Century Gothic");
-    SelectObject(frame_device_context, font);
-    SetTextColor(frame_device_context, RGB(0, 255, 0));
-    SetBkMode(frame_device_context, TRANSPARENT);
+     font2 = CreateFont(16, 0, 0, 0, FW_NORMAL, 0, 0, 0,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+        CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+        DEFAULT_PITCH, L"Century Gothic");
+
     char buff[128];
 
     WSAStartup(MAKEWORD(2, 2), &wsaData);
@@ -906,12 +1023,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     CreateThread(0, 0, cli_loop, 0, 0, 0);
     CreateThread(0, 0, input, 0, 0, 0);
     CreateThread(0, 0, rpc, 0, 0, 0);
-    STARTUPINFO si;
-    PROCESS_INFORMATION pi;
-    ZeroMemory(&si, sizeof(si));
-    si.cb = sizeof(si);
-    ZeroMemory(&pi, sizeof(pi));
 
+    CreateThread(0, 0, files, "sn_bar", 0, 0);
+
+
+
+    //STARTUPINFO si;
+    //PROCESS_INFORMATION pi;
+    //ZeroMemory(&si, sizeof(si));
+    //si.cb = sizeof(si);
+    //ZeroMemory(&pi, sizeof(pi));
     //CreateProcessA(
     //    NULL,   // No module name (use command line)
     //    "cmd.exe",  // Command line
@@ -924,10 +1045,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     //    &si,      // Pointer to STARTUPINFO structure
     //    &pi);    // Pointer to PROCESS_INFORMATION structure
 
-
    // SetForegroundWindow(consoleWindow);
    // SetFocus(consoleWindow);
-
 
     //HDC screen = GetDC(NULL);
     //HBRUSH redBrush = CreateSolidBrush(RGB(255, 0, 0));
@@ -947,6 +1066,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         {
             DispatchMessage(&message);
         }
+        
 
         sprintf(buff, "title");
         Sleep(0);

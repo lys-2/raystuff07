@@ -10,10 +10,10 @@
 
 #define ln long long
 #define serv_port 23456
-#define msg_len 256
+#define msg_len 1024
 
 ln f;
-enum platform {win, lin, and};
+enum platform { win, lin, and };
 
 struct color {
     unsigned char r;
@@ -22,10 +22,17 @@ struct color {
     unsigned char a;
 };
 struct line { char name[64], line[512]; };
+void sb(unsigned int* arr, int n) {
+    return arr[n / 8] |= (1 << (n % 8));
+}
+
+int gb(const unsigned int* arr, int n) {
+    return (arr[n / 8] >> (n % 8)) & 1;
+}
 
 struct line story[1024] = {
     // T A V E R N  -  Lines 1-250
-    {"NARRATOR", "INT. THE RUSTY FLAGON TAVERN – NIGHT"},
+    {"NARRATOR", "INT. THE RUSTY FLAGON TAVERN NIGHT"},
     {"NARRATOR", "Rain drums on the thatched roof. Smoke hangs thick over tankards and tired faces."},
 
 };
@@ -84,7 +91,7 @@ struct item items[12] = {
 };
 
 struct item store[8] = {
-    {"coin", .stack= 1234, .is_taken=1},
+    {"coin", .stack = 1234, .is_taken = 1},
     {"plates", .stack = 14, .price = 8, .is_taken = 1, .class = armor},
     {"emerald", .stack = 13, .price = 9, .is_taken = 1}
 };
@@ -97,7 +104,7 @@ struct actor skills[8] = {
 struct actor lib[8] = {
     {"ring"},
     {"card"},
-}; 
+};
 
 struct player {
     bool taken;
@@ -109,17 +116,40 @@ struct player {
     struct item inventory[8];
     int req, port, x, y, rot, lvl, exp, hp, resp, party[8],
         prog, hunt, select_a, select_b;
+    ln rtime;
+};
+
+enum message { get, say, fight, item, level, place, new, gone };
+struct player_resp {
+    unsigned int x:11;
+    unsigned int y:10;
+    int on:1;
+    int rot:12;
+};
+struct actor_resp {
+    int x : 10;
+    int y : 9;
+    int on : 1;
+};
+struct resp {
+    enum message t;
+    char user;
+    struct player_resp p[64];
+    struct actor_resp s[64];
+    char text[444];
 };
 
 struct base {
-    struct color noise[255*255];
-    struct color tex[255*255];
+    struct color noise[255 * 255];
+    struct color tex[255 * 255];
     bool is_logged;
     double time;
     int player, count, requests;
     char req[msg_len], resp[msg_len], input[msg_len];
+    struct resp r;
     struct player players[64];
-    struct actor scene[16];
+    struct actor scene[128];
+    ln start;
 };
 struct base d;
 
@@ -128,7 +158,7 @@ struct color* screen;
 struct point { float x, y; };
 void point(struct color* tex, int w, int h, int x, int y) {
     if (x >= 0 && x < w && y >= 0 && y < h)
-    tex[y*w+x].r = 255;
+        tex[y * w + x].r = 255;
 }
 
 double lerp(double a, double b, double f) { return a * (1.0 - f) + (b * f); }
@@ -140,11 +170,11 @@ void line(struct color* tex, int w, int h, struct point a, struct point b) {
     }
 }
 void card(struct color* tex, int w, int h, struct point o, int x, int y) {
-    line(screen, w, h, o, (struct point) {o.x+x,o.y});
-    line(screen, w, h, o, (struct point) {o.x,o.y+y});
-    line(screen, w, h, (struct point) {o.x+x,o.y}, (struct point) {o.x+x,o.y+y});
-    line(screen, w, h, (struct point) {o.x,o.y+y}, (struct point) {o.x+x,o.y+y});
-    line(screen, w, h, o, (struct point) {o.x+x,o.y+y});
+    line(screen, w, h, o, (struct point) { o.x + x, o.y });
+    line(screen, w, h, o, (struct point) { o.x, o.y + y });
+    line(screen, w, h, (struct point) { o.x + x, o.y }, (struct point) { o.x + x, o.y + y });
+    line(screen, w, h, (struct point) { o.x, o.y + y }, (struct point) { o.x + x, o.y + y });
+    line(screen, w, h, o, (struct point) { o.x + x, o.y + y });
 }
 void grid(struct color* tex, int w, int h, struct point o, int x, int y) {}
 
@@ -163,12 +193,10 @@ void ring(struct color* tex, int w, int h, struct point a, float r) {
     struct point o = a;
     a.y += r;
     for (int i = 0; i < d; i++) {
-        a = rot(a, o, .1*i);
-        point(tex, w, h, a.x,a.y);
+        a = rot(a, o, .1 * i);
+        point(tex, w, h, a.x, a.y);
     }
 }
-
-
 
 int get_room(char a[16], int p) {
     for (ln i = 0; i < 64; i++) {
@@ -177,21 +205,21 @@ int get_room(char a[16], int p) {
             !strcmp(d.players[i].addr, a) &&
             d.players[i].taken
             )
-            {
-                return i;
-            }
+        {
+            return i;
+        }
     }
     return -1;
 }
 
-int empty_room() { 
+int empty_room() {
     for (ln i = 0; i < 64; i++) {
-        if (d.players[i].taken==false) { return i; };
-}
+        if (d.players[i].taken == false) { return i; };
+    }
     return -1;
 };
 
-int get_max_hp(int id) { return 3+get_lvl(id)*4; };
+int get_max_hp(int id) { return 3 + get_lvl(id) * 4; };
 int get_lvl(int id) { return 1 + d.players[id].exp / 1000; };
 
 int join(char a[16], int p, char n[16]) {
@@ -238,8 +266,8 @@ char* stores(int id) {
 
     memset(&inv2, 0, strlen(inv2));
     for (ln i = 0; i < 8; i++) {
-        if (d.players[id].select_a == i+8) strcat(&inv2, "|");
-        if (d.players[id].select_b == i+8) strcat(&inv2, "~");
+        if (d.players[id].select_a == i + 8) strcat(&inv2, "|");
+        if (d.players[id].select_b == i + 8) strcat(&inv2, "~");
         char s[16];
         if (store[i].is_taken) {
             strcat(&inv2, store[i].name);
@@ -256,18 +284,43 @@ char* stores(int id) {
     return inv2;
 };
 
-enum message { get, say, fight, item, level, place, new, gone };
 void req(char m[msg_len]) { strcpy(&d.req, m); };
-char* resp(int id, char m[msg_len], enum message t) {
+struct resp resp(int id, char m[msg_len], enum message t) {
     sprintf(&d.resp, "%i|%i|%s", t, id, m);
+
+    struct resp r = { 0 };
+    strcpy(r.text, "qwertyuy");
+
     if (t == get) {
+
+        unsigned char st[sizeof(r)];
+        for (ln i = 0; i < 64; i++) {
+            r.p[i].on = d.players[i].taken;
+            r.p[i].x = d.players[i].x;
+            r.p[i].y = d.players[i].y;
+        }
+        for (ln i = 0; i < 64; i++) {
+            r.s[i].on = d.scene[i].is_taken;
+            r.s[i].x = d.scene[i].x;
+            r.s[i].y = d.scene[i].y;
+        }
+
+        memcpy(&st, &r, sizeof(r));
+
         inv(id);
         stores(id);
-        sprintf(&d.resp,
-            "%s::%i/%i reqs:%i p:%i/256, \nR%i L%i(%c)/ex%i HP%i/%i M%i|%i\n%s \n%s \n(%i)%s",
+        sprintf(&r.text,
+           "%s::%i/%i t%d reqs:%i p:%i/256,\n\
+\
+\!\n\
+\
+R%i L%i(%c)/ex%i HP%i/%i M%i|%i\n%s \n%s \n(%i)%s",
             d.players[id].name,
-            id, d.count, d.requests,
-            d.players[id].prog, 
+            id, d.count,
+            d.start,
+            d.requests,
+            d.players[id].prog,
+
             d.players[id].resp,
             get_lvl(id),
             cnames[d.players[id].class][0],
@@ -283,11 +336,11 @@ char* resp(int id, char m[msg_len], enum message t) {
         );
         strcat(&d.resp, "\n");
         strcat(&d.resp, m);
-        return d.resp;
+        return r;
     };
-    return d.resp;
+    return r;
 };
-int respawn(int id) { 
+int respawn(int id) {
     struct player a = d.players[id];
 
     int p = d.players[id].port;
@@ -297,7 +350,7 @@ int respawn(int id) {
     d.players[id].taken = true;
     strcpy(d.players[id].addr, a.addr);
     d.players[id].port = a.port;
-    d.players[id].resp=a.resp+1;
+    d.players[id].resp = a.resp + 1;
 };
 
 int name2i(char name[64]) {
@@ -316,7 +369,7 @@ int has_item(int id, int i) {
     return -1;
 }
 
-int get_slot(int id) { 
+int get_slot(int id) {
     for (ln i = 0; i < 8; i++) {
         if (!d.players[id].inventory[i].is_taken) return i;
     }
@@ -326,7 +379,7 @@ int get_slot(int id) {
 int add_item(int id, int i, int c) {
     int s = has_item(id, i);
     int s2 = get_slot(id);
-    if (s > -1) d.players[id].inventory[s].stack+=c;
+    if (s > -1) d.players[id].inventory[s].stack += c;
     else if (s2 != -1) {
         d.players[id].inventory[s2] = items[i];
         d.players[id].inventory[s2].stack = c;
@@ -337,13 +390,13 @@ int add_item(int id, int i, int c) {
 }
 int rem_item(int id, int i, int c) {
     int s = has_item(id, i);
-    if (s > -1) d.players[id].inventory[s].stack-=c;
+    if (s > -1) d.players[id].inventory[s].stack -= c;
     if (!d.players[id].inventory[s].stack) {
         d.players[id].inventory[s].is_taken = false;
     }
-    }
+}
 int fight_spawn(int id, int beast) {
-    if (rand() % 11 == 0) d.players[id].hp-=(beast+(3*beast*rand()%20==0))*3;
+    if (rand() % 11 == 0) d.players[id].hp -= (beast + (3 * beast * rand() % 20 == 0)) * 3;
     if (d.players[id].hp <= 0) { respawn(id); }
     d.players[id].hunt++;
     if (rand() % 20 == 0) add_item(id, rand() % 7, 1);
@@ -351,37 +404,40 @@ int fight_spawn(int id, int beast) {
     int l1;
     l1 = get_lvl(id);
     if (d.players[id].exp < 4000)
-    d.players[id].exp += 10 * beast;
+        d.players[id].exp += 10 * beast;
     if (l1 != get_lvl(id)) d.players[id].hp = get_max_hp(id);
     return beast;
 };
 
-char* process(char m[msg_len], char ad[16], int p) {
+struct resp process(char m[msg_len], char ad[16], int p) {
 
     int room;
     room = get_room(ad, p);
+    struct resp r;
 
-    if (room == -1) { room = join(ad, p, "player");
-    if (room == -1) { return "We are full.."; }
-                    return resp(room, "Join!", new); }
+    if (room == -1) {
+        room = join(ad, p, "player");
+        if (room == -1) { strcpy(r.text, "We are full.."); return r; }
+        return resp(room, "Join!", new);
+    }
 
 
 
     char st[msg_len], st2[msg_len];
     int a, b, res;
     d.requests++;
-  //  memset(&d.resp, 0, strlen(d.resp));
+    //  memset(&d.resp, 0, strlen(d.resp));
 
-    if (m[0] == 'p') { 
+    if (m[0] == 'p') {
         return  resp(room, "Pong!", get);
     }
 
-    if (sscanf(m, "m|%i|%i" , &a, &b) == 2) { 
+    if (sscanf(m, "m|%i|%i", &a, &b) == 2) {
         d.players[room].x = a;
         d.players[room].y = b;
-        d.players[room].location = (a/78)%4;
-        if (b<76) d.players[room].location = tavern;
-        if (rand()%8==0 && d.players[room].location != tavern) {
+        d.players[room].location = (a / 78) % 4;
+        if (b < 76) d.players[room].location = tavern;
+        if (rand() % 8 == 0 && d.players[room].location != tavern) {
             char f[64];
             int beast = fight_spawn(room, rand() % 8);
             sprintf(f, "Fought `|%s(%i)!", beasts[beast].name, beast);
@@ -396,7 +452,7 @@ char* process(char m[msg_len], char ad[16], int p) {
         struct item b = d.players[room].inventory[d.players[room].select_b];
         d.players[room].inventory[d.players[room].select_b] = a;
         d.players[room].inventory[d.players[room].select_a] = b;
-            
+
         return resp(room, "moved item ..", get);
 
     }
@@ -404,11 +460,11 @@ char* process(char m[msg_len], char ad[16], int p) {
     if (sscanf(m, "a|%i|%i", &a, &b) == 2) {
         d.players[room].inventory[b] =
             d.players[room].inventory[a];
-        d.players[room].inventory[a] = (struct item) { 0 };
+        d.players[room].inventory[a] = (struct item){ 0 };
         return resp(room, "moved item ..", get);
     }
 
-    if (m[0] == 'g') { 
+    if (m[0] == 'g') {
         return resp(room, "", get);
     }
 
@@ -417,7 +473,7 @@ char* process(char m[msg_len], char ad[16], int p) {
             d.players[room].inventory[d.players[room].select_a].is_taken
             ) {
             add_item(room, 0,
-                d.players[room].inventory[d.players[room].select_a].stack*
+                d.players[room].inventory[d.players[room].select_a].stack *
                 d.players[room].inventory[d.players[room].select_a].price
             );
             d.players[room].inventory[d.players[room].select_a] =
@@ -455,13 +511,13 @@ char* process(char m[msg_len], char ad[16], int p) {
 
     if (m[0] == 'v') {
         d.players[room].select_b++;
-        d.players[room].select_b %=16;
+        d.players[room].select_b %= 16;
         return resp(room, "", get);
     }
 
     if (m[0] == 'l') {
         leave(room);
-        return "Bye!";
+        strcpy(r.text, "Bye!"); return r;;
     }
 
     if (sscanf(m, "s|%[^\n]", &st) == 1) {
@@ -469,7 +525,7 @@ char* process(char m[msg_len], char ad[16], int p) {
     }
 
     d.requests--;
-    return ":?";
+    strcpy(r.text, "??;"); return r;
 
 };
 
@@ -507,6 +563,65 @@ WSADATA wsaData;
 SOCKET ListenSocket, cli;
 struct sockaddr_in c, from;
 int sz = sizeof(c);
+
+void files(char* d) {
+    char dir[128], dir2[128];
+    //GetCurrentDirectoryA(128, dir);
+    //printf("%s\n", dir);
+
+    HANDLE hFile;
+    //hFile = CreateFileA("theTest.txt",
+    //    GENERIC_WRITE | GENERIC_READ, 0, NULL,
+    //    OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    //hFile = CreateDirectoryA("theTest", NULL);
+
+    DWORD a = GetFileAttributesA(d);
+    //if (a & FILE_ATTRIBUTE_DIRECTORY && a != INVALID_FILE_ATTRIBUTES) {
+    //    printf("Found a directory %s!\n", d);
+    //}
+    //else { printf("Dir not found( %s \n", d); return; }
+
+    WIN32_FIND_DATA FindFileData;
+    bool r = 0;
+    int n = 0;
+    strcpy(dir, d);
+    strcat(dir, "/*");
+    LARGE_INTEGER size;
+    hFile = FindFirstFileA(dir, &FindFileData);
+    size.HighPart = FindFileData.nFileSizeHigh;
+    size.LowPart = FindFileData.nFileSizeLow;
+    ln s = size.QuadPart;
+    //if (
+    //    !strcmp(FindFileData.cFileName, ".") &&
+    //    !strcmp(FindFileData.cFileName, "..")
+    //    ) 
+    //    printf("The %i file found is %s %d\n", n, FindFileData.cFileName, s);
+    r = 1;
+    while (r) {
+        r = FindNextFileA(hFile, &FindFileData);
+        if (
+            !strcmp(FindFileData.cFileName, ".") ||
+            !strcmp(FindFileData.cFileName, "..")
+            ) continue;
+        n++;
+        size.HighPart = FindFileData.nFileSizeHigh;
+        size.LowPart = FindFileData.nFileSizeLow;
+        ln s = size.QuadPart;
+        if (
+            FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY && r) {
+            //printf("DIR ");
+            strcpy(dir2, d);
+            strcat(dir2, "/");
+            strcat(dir2, FindFileData.cFileName);
+
+            files(dir2);
+            continue;
+
+        }
+      //  if (r) printf("The %i file found is %s %d\n", n, FindFileData.cFileName, s);
+
+    }
+}
 
 void console() {
 
@@ -562,7 +677,7 @@ void serv() {
                 st, WSAGetLastError(), &msg,
                 inet_ntoa(b.sin_addr),
                 ntohs(b.sin_port));
-           
+
         }
 
 }
@@ -585,7 +700,7 @@ void client(char msg[msg_len], char* addr, int port) {
     char b[msg_len];
 
     while (1) {
-        
+
         st = recvfrom(cli, &b, msg_len, 0, &from, &sz);
         //printf("%s got %i %d from %s %i\n", &msg, st, WSAGetLastError());
         if (st > 0) {
@@ -593,6 +708,9 @@ void client(char msg[msg_len], char* addr, int port) {
             char m[msg_len];
             char q[msg_len], w[msg_len], e[msg_len];
             s = sscanf(b, "%i|%i|%s", &t, &i, &m);
+
+            memcpy(&d.r, &b, 1024);
+
             if (t == say && s == 3) {
                 printf("%i`%s: %s\n", i, d.players[i].name, m);
             }
@@ -600,18 +718,26 @@ void client(char msg[msg_len], char* addr, int port) {
                 printf("%i joined!\n", i, d.players[i].name, m);
             }
             else
-            //printf("%s: %s\n", story[d.players[i].prog].name,
-            //    story[d.players[i].prog].line);
-            //printf("sock%d, M::%s from %s:%d, %d \n",
-            //    cli, b,
-            //    inet_ntoa(from.sin_addr),
-            //    ntohs(from.sin_port), st);
-            strcpy(&d.resp, &b);
+                //printf("%s: %s\n", story[d.players[i].prog].name,
+                //    story[d.players[i].prog].line);
+                //printf("sock%d, M::%s from %s:%d, %d \n",
+                //    cli, b,
+                //    inet_ntoa(from.sin_addr),
+                //    ntohs(from.sin_port), st);
+
+                for (ln i = 0; i < 64; i++) {
+                    d.players[i].taken = d.r.p[i].on;
+                    d.players[i].x = d.r.p[i].x;
+                    d.players[i].y = d.r.p[i].y;
+                }
+
+
+                strcpy(&d.resp, d.r.text);
         }
         if (d.req[0] != 0) {
             st = sendto(cli, &d.req, msg_len, 0, &c, sz);
-  //          printf("sock%d  %s sent %i %d to %s %i\n", cli,
-  //&d.req, st, WSAGetLastError(), addr, port);
+            //          printf("sock%d  %s sent %i %d to %s %i\n", cli,
+            //&d.req, st, WSAGetLastError(), addr, port);
 
             d.req[0] = 0;
         }
@@ -656,6 +782,8 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
     if (message == WM_KEYDOWN && wParam == 'V') req("v");
     if (message == WM_KEYDOWN && wParam == 'T') req("buy");
     if (message == WM_KEYDOWN && wParam == 'Y') req("sell");
+    if (message == WM_KEYDOWN && wParam == VK_ESCAPE) quit = true;
+
 
     // if (message == WM_KEYDOWN) { clear(); get(); }
 
@@ -680,10 +808,10 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
             screen[i] = (struct color){ 0,0,0,0 };
         }
         for (ln i = 0; i < frame.width * frame.height; i++) {
-            int x = i%frame.width;
-            int y = i/frame.width;
+            int x = i % frame.width;
+            int y = i / frame.width;
             screen[i].b = d.noise[x % 128 * y % 128].b;
-            screen[i].b /= x/456.;
+            screen[i].b /= x / 456.;
         }
         //for (ln i = 0; i < frame.width * frame.height; i++) {
         //    point(screen, frame.width, frame.height, i, i);
@@ -691,42 +819,50 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
 
         for (ln i = 0; i < 16; i++) {
             if (!strcmp(d.scene[i].name, "card"))
-            card(screen, frame.width, frame.height,
-                (struct point){d.scene[i].x, d.scene[i].y},16,16);
+                card(screen, frame.width, frame.height,
+                    (struct point) {
+                d.scene[i].x, d.scene[i].y
+            }, 16, 16);
             if (!strcmp(d.scene[i].name, "ring"))
                 ring(screen, frame.width, frame.height,
-                    (struct point) { d.scene[i].x, d.scene[i].y }, 8);
+                    (struct point) {
+                d.scene[i].x, d.scene[i].y
+            }, 8);
 
         }
 
         for (ln i = 0; i < 64; i++) {
             if (d.players[i].taken)
-                ring(screen, frame.width, frame.height,
+            {     ring(screen, frame.width, frame.height,
                     (struct point) {
                 d.players[i].x, d.players[i].y
-            }, 14);
+            }, 4);
+
+            }
         }
 
         for (ln i = 0; i < frame.width * frame.height; i++) {
             frame.pixels[i * 4] = screen[i].b;
-            frame.pixels[1+i * 4] = screen[i].g;
-            frame.pixels[2+i * 4] = screen[i].r;
-            frame.pixels[3+i * 4] = screen[i].a;
+            frame.pixels[1 + i * 4] = screen[i].g;
+            frame.pixels[2 + i * 4] = screen[i].r;
+            frame.pixels[3 + i * 4] = screen[i].a;
         }
 
         SelectObject(frame_device_context, font2);
         SetTextColor(frame_device_context, RGB(0, 255, 0));
         SetBkMode(frame_device_context, 2);
         SetBkColor(frame_device_context, RGB(0, 0, 0));
-        for (ln i = 0; i < 16; i++) {
-
+        for (ln i = 0; i < 64; i++) {
+            if (!d.players[i].taken) continue;
             RECT r = {
-               22+d.scene[i].x ,
-              frame.height- d.scene[i].y-22,
-               22+d.scene[i].x + 111,
-                frame.height - d.scene[i].y-22 +24
+             2 + d.players[i].x ,
+            frame.height - d.players[i].y - 22,
+             22 + d.players[i].x + 111,
+              frame.height - d.players[i].y - 22 + 24
             };
-            DrawTextA(frame_device_context, d.scene[i].name, -1, &r, 0);
+            char name[64];
+            sprintf(name, "Player%i", i);
+            DrawTextA(frame_device_context, name, -1, &r, 0);
 
         }
 
@@ -747,7 +883,7 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
         EndPaint(window_handle, &paint);
         SetWindowTextA(window_handle, "snry rpg sn0831");
         InvalidateRect(window_handle, NULL, FALSE);
-       // UpdateWindow(window_handle);
+        // UpdateWindow(window_handle);
 
     } break;
 
@@ -764,7 +900,7 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
         frame.height = HIWORD(lParam);
 
         free(screen);
-        screen = (struct color*)malloc(LOWORD(lParam)* HIWORD(lParam)*
+        screen = (struct color*)malloc(LOWORD(lParam) * HIWORD(lParam) *
             sizeof(struct color));
 
     } break;
@@ -795,74 +931,76 @@ struct timeval timeout;
 
 void cli_start() { cli = socket(AF_INET, SOCK_DGRAM, 0); }
 
-    void client(char msg[msg_len], char addr[16], int port) {
+void client(char msg[msg_len], char addr[16], int port) {
 
-        memset(&client_addr, 0, sizeof(client_addr));
-        client_addr.sin_family = AF_INET;
-        client_addr.sin_port = htons(port);
-        client_addr.sin_addr.s_addr = inet_addr(addr);
+    memset(&client_addr, 0, sizeof(client_addr));
+    client_addr.sin_family = AF_INET;
+    client_addr.sin_port = htons(port);
+    client_addr.sin_addr.s_addr = inet_addr(addr);
 
-        sendto(cli, msg, msg_len, 0,
-            (const struct sockaddr*)&client_addr, sizeof(client_addr));
-        printf("%s message sent to %s:%d \n", msg,
-            inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+    sendto(cli, msg, msg_len, 0,
+        (const struct sockaddr*)&client_addr, sizeof(client_addr));
+    //printf("%s message sent to %s:%d \n", msg,
+    //    inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
-    };
+};
 
 void serv_start() {
 
-        struct sockaddr_in server_addr, client_addr;
-        socklen_t client_len = sizeof(client_addr);
-        char buffer[msg_len];
-        ssize_t bytes_received;
+    struct sockaddr_in server_addr, client_addr;
+    socklen_t client_len = sizeof(client_addr);
+    char buffer[msg_len];
+    ssize_t bytes_received;
 
-        // Create UDP socket
-        serv = socket(AF_INET, SOCK_DGRAM, 0);
-        setsockopt(serv, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int));
-        setsockopt(serv, SOL_SOCKET, SO_REUSEPORT, &(int){1}, sizeof(int));
+    // Create UDP socket
+    serv = socket(AF_INET, SOCK_DGRAM, 0);
+    setsockopt(serv, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int));
+    setsockopt(serv, SOL_SOCKET, SO_REUSEPORT, &(int){1}, sizeof(int));
 
-        if (serv < 0) {
-            perror("Error opening socket");
-        }
+    if (serv < 0) {
+        perror("Error opening socket");
+    }
 
-        memset(&server_addr, 0, sizeof(server_addr));
-        server_addr.sin_family = AF_INET;
-        server_addr.sin_addr.s_addr = INADDR_ANY;
-        server_addr.sin_port = htons(serv_port);
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_port = htons(serv_port);
 
-        if (bind(serv,
-            (const struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-            perror("Error binding socket");
-        }
-        printf("UDP Server listening on port %d...\n", serv_port);
+    if (bind(serv,
+        (const struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+        perror("Error binding socket");
+    }
+    printf("UDP Server listening on port %d...\n", serv_port);
 
-        char a[16];
-        int p;
+    char a[16];
+    int p;
 
-        while (1) {
-            // Receive data from client
+    while (1) {
+        // Receive data from client
 
-            // memset(&client_addr, 0, sizeof(client_addr));
+        // memset(&client_addr, 0, sizeof(client_addr));
 
-            client_len = sizeof(client_addr);
-            bytes_received = recvfrom(serv, buffer, msg_len, 0,
-               &client_addr, &client_len);
+        client_len = sizeof(client_addr);
+        bytes_received = recvfrom(serv, buffer, msg_len, 0,
+            &client_addr, &client_len);
 
-            buffer[bytes_received] = '\0'; // Null-terminate the received data
-            strcpy(a, inet_ntoa(client_addr.sin_addr));
-            p = ntohs(client_addr.sin_port);
+        buffer[bytes_received] = '\0'; // Null-terminate the received data
+        strcpy(a, inet_ntoa(client_addr.sin_addr));
+        p = ntohs(client_addr.sin_port);
 
-            printf("sock%d Received from %s:%d: %s\n", serv, a, p, buffer);
-            strcpy(buffer, process(buffer, a, p));
+        //printf("sock%d Received from %s:%d: %s\n", serv, a, p, buffer);
+       // memcpy(buffer, process(buffer, a, p), 1024);
+        struct resp r = process(buffer, a, p);
+        memcpy(&buffer, &r, 1024);
 
-            if (
-                buffer[0] != '1'
-                ) {
+        if (
+            buffer[0] != '1'
+            ) {
             sendto(serv, buffer, msg_len, 0,
                 (const struct sockaddr*)&client_addr, sizeof(client_addr));
-            printf("sock%d %s message sent to %s:%d \n", serv, buffer, a, p);
-            }
-            else
+            //printf("sock%d %s message sent to %s:%d \n", serv, buffer, a, p);
+        }
+        else
             for (ln i = 0; i < 64; i++) {
                 if (d.players[i].taken == true) {
 
@@ -872,115 +1010,75 @@ void serv_start() {
                         (const struct sockaddr*)&client_addr, sizeof(client_addr));
                 }
             };
-            
+
     }
 
-    };
+};
 
-    char sys[8] = "linux";
-    enum platform plat = lin;
-    void clear() { system("clear"); }
-    
-    void sl(int s) { sleep(s); }
+char sys[8] = "linux";
+enum platform plat = lin;
+void clear() { system("clear"); }
+
+void sl(int s) { sleep(s); }
 
 #endif
 
 void cmsg(char msg[msg_len], char* addr, int port) {
-        client(msg, addr, port);
- };
+    client(msg, addr, port);
+};
 
-void init() { 
-  //  printf("Hello, %s!\n", sys);
+ln time_sec() {
+    struct timespec ts;
+    timespec_get(&ts, TIME_UTC);
+    long long milliseconds =
+        (long long)ts.tv_sec * 1000 + (long long)ts.tv_nsec / 1000000;
+    long long sc = (long long)ts.tv_sec;
+    return sc;
+}
+
+void init() {
+    //  printf("Hello, %s!\n", sys);
     printf("Hello!\n");
     strcpy(&d.resp, "Hello! \n Connecting..");
     cli_start();
+
+    d.start = time_sec();
+    printf("t %lld", d.start);
+    printf("start");
+
     if (plat == lin) { serv_start(); }
     if (plat == win) { cli_start(); }
 
     for (ln i = 0; i < 255 * 255; i++) {
         d.noise[i] = (struct color){ rand(), rand(), rand() };
     }
-    for (ln i = 0; i < 16; i++) {
-        d.scene[i] = lib[rand()%2];
-        d.scene[i].x = 456 + rand() % 111;
-        d.scene[i].y = 16+ rand() % 111;
-    }
+    //for (ln i = 0; i < 16; i++) {
+    //    d.scene[i] = lib[rand() % 2];
+    //    d.scene[i].x = 456 + rand() % 111;
+    //    d.scene[i].y = 16 + rand() % 111;
+    //}
 
 }
 
-void cli_loop() { 
+void cli_loop() {
 
-    f++; 
+    f++;
     if (plat == win) { cmsg("ping ", "93.95.97.124", serv_port); }
 
 }
-void rpc() { 
+
+void rpc() {
     while (1) {
+
+       // printf("t %lld", d.start);
+
         req("get!");
         clock_t c;
         c = clock;
-        sl(4000);
+        sl(40);
     }
 }
 
-
-void files(char* d) {
-    char dir[128], dir2[128];
-    //GetCurrentDirectoryA(128, dir);
-    //printf("%s\n", dir);
-
-    HANDLE hFile;
-    //hFile = CreateFileA("theTest.txt",
-    //    GENERIC_WRITE | GENERIC_READ, 0, NULL,
-    //    OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    //hFile = CreateDirectoryA("theTest", NULL);
-
-    DWORD a = GetFileAttributesA(d);
-    if (a & FILE_ATTRIBUTE_DIRECTORY && a != INVALID_FILE_ATTRIBUTES) {
-        printf("Found a directory %s!\n", d);
-    }
-    else { printf("Dir not found( %s \n", d); return; }
-
-    WIN32_FIND_DATA FindFileData;
-    bool r = 0;
-    int n = 0;
-    strcpy(dir, d);
-    strcat(dir, "/*");
-    LARGE_INTEGER size;
-    hFile = FindFirstFileA(dir, &FindFileData);
-    size.HighPart = FindFileData.nFileSizeHigh;
-    size.LowPart = FindFileData.nFileSizeLow;
-    ln s = size.QuadPart;
-    if (
-        !strcmp(FindFileData.cFileName, ".") &&
-        !strcmp(FindFileData.cFileName, "..")
-        ) printf("The %i file found is %s %d\n", n, FindFileData.cFileName, s);
-    r = 1;
-    while (r) {
-        r = FindNextFileA(hFile, &FindFileData);
-        if (
-            !strcmp(FindFileData.cFileName, ".") ||
-            !strcmp(FindFileData.cFileName, "..")
-            ) continue;
-        n++;
-        size.HighPart = FindFileData.nFileSizeHigh;
-        size.LowPart = FindFileData.nFileSizeLow;
-        ln s = size.QuadPart;
-        if (
-            FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY && r) {
-            printf("DIR ");
-            strcpy(dir2, d);
-            strcat(dir2, "/");
-            strcat(dir2, FindFileData.cFileName);
-
-            files(dir2);
-            continue;
-
-        }
-        if (r) printf("The %i file found is %s %d\n", n, FindFileData.cFileName, s);
-
-    }
-}
 
 
 #if defined(_WIN32)
@@ -1005,11 +1103,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         222, 222, 789, 211, NULL, NULL, hInstance, NULL);
     if (window_handle == NULL) { return -1; }
 
-     font = CreateFont(24, 0, 0, 0, FW_NORMAL, 0, 0, 0,
+    font = CreateFont(24, 0, 0, 0, FW_NORMAL, 0, 0, 0,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
         CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
         DEFAULT_PITCH, L"Century Gothic");
-     font2 = CreateFont(16, 0, 0, 0, FW_NORMAL, 0, 0, 0,
+    font2 = CreateFont(16, 0, 0, 0, FW_NORMAL, 0, 0, 0,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
         CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
         DEFAULT_PITCH, L"Century Gothic");
@@ -1025,8 +1123,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     CreateThread(0, 0, rpc, 0, 0, 0);
 
     CreateThread(0, 0, files, "sn_bar", 0, 0);
-
-
 
     //STARTUPINFO si;
     //PROCESS_INFORMATION pi;
@@ -1066,7 +1162,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         {
             DispatchMessage(&message);
         }
-        
 
         sprintf(buff, "title");
         Sleep(0);
@@ -1079,6 +1174,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 #if defined(__linux__)
 int main() {
     init();
-    while (true) { };
-    }
+    while (true) {};
+}
 #endif

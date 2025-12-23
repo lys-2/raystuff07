@@ -56,7 +56,7 @@ struct item {
 struct actor {
     char name[32];
     int stack, lvl, x, y;
-    enum class class;
+    enum class class, lib;
     struct item inventory[8];
     bool is_taken;
 };
@@ -117,26 +117,33 @@ struct player {
     int req, port, x, y, rot, lvl, exp, hp, resp, party[8],
         prog, hunt, select_a, select_b;
     ln rtime;
+
 };
 
 enum message { get, say, fight, item, level, place, new, gone };
+enum state { idle, walk, run, sit, lay, cast, jump };
 struct player_resp {
     unsigned int x:11;
     unsigned int y:10;
-    int on:1;
-    int rot:12;
+    unsigned int on:1;
+    unsigned int lvl:3;
+    unsigned int hp:5;
+    unsigned int rot:2;
 };
 struct actor_resp {
-    int x : 10;
-    int y : 9;
-    int on : 1;
+    unsigned int x : 11;
+    unsigned int y : 10;
+    unsigned int on : 1;
+    unsigned int lib : 1;
+    unsigned int rot : 3;
 };
 struct resp {
     enum message t;
     char user;
     struct player_resp p[64];
     struct actor_resp s[64];
-    char text[444];
+    char text[256];
+    char pickup[256];
 };
 
 struct base {
@@ -144,30 +151,34 @@ struct base {
     struct color tex[255 * 255];
     bool is_logged;
     double time;
-    int player, count, requests;
+    int player, count, requests, points, lines;
     char req[msg_len], resp[msg_len], input[msg_len];
     struct resp r;
     struct player players[64];
     struct actor scene[128];
     ln start;
+    int frame;
 };
 struct base d;
 
 struct color* screen;
 
 struct point { float x, y; };
+struct trans { struct point p; float rot; };
 void point(struct color* tex, int w, int h, int x, int y) {
     if (x >= 0 && x < w && y >= 0 && y < h)
         tex[y * w + x].r = 255;
+    d.points++;
 }
 
 double lerp(double a, double b, double f) { return a * (1.0 - f) + (b * f); }
 void line(struct color* tex, int w, int h, struct point a, struct point b) {
-    int d = 123;
-    for (ln i = 0; i <= d; i++) {
-        point(tex, w, h, lerp(a.x, b.x, i / (double)d),
-            lerp(a.y, b.y, i / (double)d));
+    int q = 12;
+    for (ln i = 0; i <= q; i++) {
+        point(tex, w, h, lerp(a.x, b.x, i / (double)q),
+        lerp(a.y, b.y, i / (double)q));
     }
+    d.lines++;
 }
 void card(struct color* tex, int w, int h, struct point o, int x, int y) {
     line(screen, w, h, o, (struct point) { o.x + x, o.y });
@@ -178,6 +189,12 @@ void card(struct color* tex, int w, int h, struct point o, int x, int y) {
 }
 void grid(struct color* tex, int w, int h, struct point o, int x, int y) {}
 
+struct rule {
+    char start[8], replace[8];
+    char it, len, letter;
+    float angle;
+};
+
 struct point rot(struct point p, struct point c, float a) {
     p.x -= c.x;
     p.y -= c.y;
@@ -187,6 +204,55 @@ struct point rot(struct point p, struct point c, float a) {
     p.y = c.y + y2;
     return p;
 };
+struct point forward(struct point p, float angle, float d) {
+    struct point f = { cos(angle), sin(angle) };
+    p.x += f.x * d;
+    p.y += f.y * d;
+    return p;
+}
+
+char* lsys(char* st, char* r, int d) {
+
+    if (!d) return st;
+
+    char str[12345] = { 0 };
+    char c[2]; c[1] = 0;
+    int i = 0;
+    while (st[i]) {
+        if (st[i] == 'F') { strcat(&str, r); }
+        else { c[0] = st[i]; strcat(&str, &c); }
+        i++;
+    }
+    //printf("%s, %i\n", &str, d); 
+    return lsys(&str, r, d - 1);
+
+}
+void turtle(struct color* tex, int w, int h,
+    struct trans t, struct rule rule, int depth) {
+
+    char* str = lsys(rule.start, rule.replace, rule.it);
+    struct point a = t.p;
+    struct point b = { 0 };
+    struct point ps = { 0 };
+    float rs = 0;
+
+    float rot = t.rot;
+    int i = 0;
+    while (str[i] != 0) {
+        if (str[i] == '+') { rot += 3.1415 / rule.angle; }
+        if (str[i] == '-') { rot -= 3.1415 / rule.angle; }
+        if (str[i] == '[') { rs = rot; ps = a; }
+        if (str[i] == ']') { rot = rs; a = ps; }
+
+        if (str[i] == 'F') {
+            b = forward(a, rot, rule.len);
+            line(screen, w, h, a, b);
+            a = b;
+        }
+        i++;
+    }
+
+}
 
 void ring(struct color* tex, int w, int h, struct point a, float r) {
     int d = 123;
@@ -298,9 +364,12 @@ struct resp resp(int id, char m[msg_len], enum message t) {
             r.p[i].on = d.players[i].taken;
             r.p[i].x = d.players[i].x;
             r.p[i].y = d.players[i].y;
+            r.p[i].hp = d.players[i].hp;
+            r.p[i].lvl = get_lvl(i);
         }
         for (ln i = 0; i < 64; i++) {
             r.s[i].on = d.scene[i].is_taken;
+            r.s[i].lib = d.scene[i].lib;
             r.s[i].x = d.scene[i].x;
             r.s[i].y = d.scene[i].y;
         }
@@ -420,8 +489,6 @@ struct resp process(char m[msg_len], char ad[16], int p) {
         if (room == -1) { strcpy(r.text, "We are full.."); return r; }
         return resp(room, "Join!", new);
     }
-
-
 
     char st[msg_len], st2[msg_len];
     int a, b, res;
@@ -623,6 +690,23 @@ void files(char* d) {
     }
 }
 
+ln time_sec() {
+    struct timespec ts;
+    timespec_get(&ts, TIME_UTC);
+    long long milliseconds =
+        (long long)ts.tv_sec * 1000 + (long long)ts.tv_nsec / 1000000;
+    long long sc = (long long)ts.tv_sec;
+    return sc;
+}
+ln time_ms() {
+    struct timespec ts;
+    timespec_get(&ts, TIME_UTC);
+    long long milliseconds =
+        (long long)ts.tv_sec * 1000 + (long long)ts.tv_nsec / 1000000;
+    long long sc = (long long)ts.tv_sec;
+    return milliseconds;
+}
+
 void console() {
 
     FILE* conin = stdin;
@@ -728,9 +812,16 @@ void client(char msg[msg_len], char* addr, int port) {
                 for (ln i = 0; i < 64; i++) {
                     d.players[i].taken = d.r.p[i].on;
                     d.players[i].x = d.r.p[i].x;
+                    d.players[i].lvl = d.r.p[i].lvl;
+                    d.players[i].hp = d.r.p[i].hp;
                     d.players[i].y = d.r.p[i].y;
                 }
-
+                for (ln i = 0; i < 64; i++) {
+                    d.scene[i] = lib[d.r.s[i].lib];
+                    d.scene[i].is_taken = d.r.s[i].on;
+                    d.scene[i].x = d.r.s[i].x;
+                    d.scene[i].y = d.r.s[i].y;
+                }
 
                 strcpy(&d.resp, d.r.text);
         }
@@ -749,14 +840,15 @@ void client(char msg[msg_len], char* addr, int port) {
     //WSACleanup();
 }
 
-void sl(int s) { Sleep(s); }
 
+void sl(int s) { Sleep(s); }
 STARTUPINFO si;
 PROCESS_INFORMATION pi;
 LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
     UINT message, WPARAM wParam, LPARAM lParam) {
 
     // mode(first);
+    if (message == WM_KEYDOWN && wParam == VK_ESCAPE) quit = true;
 
     if (message == WM_KEYDOWN && wParam == 'A') req("a");
     if (message == WM_KEYDOWN && wParam == 'Q')
@@ -782,8 +874,6 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
     if (message == WM_KEYDOWN && wParam == 'V') req("v");
     if (message == WM_KEYDOWN && wParam == 'T') req("buy");
     if (message == WM_KEYDOWN && wParam == 'Y') req("sell");
-    if (message == WM_KEYDOWN && wParam == VK_ESCAPE) quit = true;
-
 
     // if (message == WM_KEYDOWN) { clear(); get(); }
 
@@ -817,7 +907,18 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
         //    point(screen, frame.width, frame.height, i, i);
         //}
 
-        for (ln i = 0; i < 16; i++) {
+        for (ln i = 1; i < 10; i++) {
+            turtle(
+                screen, frame.width, frame.height,
+                (struct trans) {
+                23+i*111, 222, 0.
+            },
+                (struct rule) {
+                "F", "FF+", 8, 8, 'F', i+sin(d.frame/11111.)/1111.
+            }, 0);
+        }
+
+        for (ln i = 0; i < 64; i++) {
             if (!strcmp(d.scene[i].name, "card"))
                 card(screen, frame.width, frame.height,
                     (struct point) {
@@ -861,7 +962,8 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
               frame.height - d.players[i].y - 22 + 24
             };
             char name[64];
-            sprintf(name, "Player%i", i);
+            sprintf(name, "Player%i l%i h%i/%i",
+                i, d.players[i].lvl, d.players[i].hp, get_max_hp(i));
             DrawTextA(frame_device_context, name, -1, &r, 0);
 
         }
@@ -1027,15 +1129,6 @@ void cmsg(char msg[msg_len], char* addr, int port) {
     client(msg, addr, port);
 };
 
-ln time_sec() {
-    struct timespec ts;
-    timespec_get(&ts, TIME_UTC);
-    long long milliseconds =
-        (long long)ts.tv_sec * 1000 + (long long)ts.tv_nsec / 1000000;
-    long long sc = (long long)ts.tv_sec;
-    return sc;
-}
-
 void init() {
     //  printf("Hello, %s!\n", sys);
     printf("Hello!\n");
@@ -1043,20 +1136,28 @@ void init() {
     cli_start();
 
     d.start = time_sec();
-    printf("t %lld", d.start);
+    printf("t %lld\n", d.start);
     printf("start");
-
-    if (plat == lin) { serv_start(); }
-    if (plat == win) { cli_start(); }
+    
 
     for (ln i = 0; i < 255 * 255; i++) {
         d.noise[i] = (struct color){ rand(), rand(), rand() };
     }
-    //for (ln i = 0; i < 16; i++) {
-    //    d.scene[i] = lib[rand() % 2];
-    //    d.scene[i].x = 456 + rand() % 111;
-    //    d.scene[i].y = 16 + rand() % 111;
-    //}
+
+    if (plat == lin) { 
+
+        for (ln i = 0; i < 64; i++) {
+            char r = rand() % 2;
+            d.scene[i] = lib[r];
+            d.scene[i].lib = r;
+            d.scene[i].x = i*3 + 123 + rand() % 111;
+            d.scene[i].y = 16 + rand() % 111;
+            d.scene[i].is_taken = true;
+        }
+
+        serv_start(); }
+
+
 
 }
 
@@ -1075,7 +1176,7 @@ void rpc() {
         req("get!");
         clock_t c;
         c = clock;
-        sl(40);
+        sl(4000);
     }
 }
 
@@ -1100,7 +1201,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
     console();
     window_handle = CreateWindow(window_class_name, L"screen", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-        222, 222, 789, 211, NULL, NULL, hInstance, NULL);
+        123, 123, 890, 389, NULL, NULL, hInstance, NULL);
     if (window_handle == NULL) { return -1; }
 
     font = CreateFont(24, 0, 0, 0, FW_NORMAL, 0, 0, 0,
@@ -1161,10 +1262,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         while (PeekMessage(&message, NULL, 0, 0, PM_REMOVE))
         {
             DispatchMessage(&message);
+            d.frame++;
         }
 
-        sprintf(buff, "title");
-        Sleep(0);
+
     }
 
     return 0;

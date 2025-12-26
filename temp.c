@@ -3,7 +3,7 @@
 #endif
 #include <stdio.h>
 #include <windows.h>
-#define count 1234
+#define count 23451
 
 struct frame { int width; int height; unsigned char* pixels; } frame;
 struct node { char name[8], is_spawned, is_attached; int x, y, at; };
@@ -15,7 +15,7 @@ struct state s, def;
 
 void delete(int id) { 
     s.scene[id].is_spawned = 0; s.spawned--;
-   printf("- %i\n", id);
+    printf("- %i\n", id);
 }
 int slot() { 
     if (!s.scene[s.nodes%count].is_spawned) return s.nodes%count;
@@ -31,7 +31,7 @@ void spawn(struct node n) {
     s.scene[slot()] = n;
     s.spawned++;
     s.nodes++;
-     printf("++ %i\n", sl);
+    printf("++ %i\n", sl);
 }
 
 void point(struct frame f, float x, float y) {
@@ -39,9 +39,20 @@ void point(struct frame f, float x, float y) {
     f.pixels[1 + (int)(x+y*f.width) * 4] = 255;
 }
 
+void load() {
+    FILE* fptr = fopen("save_nr", "rb");
+    fread(&s, sizeof(s), 1, fptr);
+    fclose(fptr);
+}
 void init() {
     printf("Hi!\n");
 };
+
+void save() { 
+    FILE* fptr = fopen("save_nr", "wb");
+    if (fptr) fwrite(&s, sizeof(s), 1, fptr);
+    fclose(fptr);
+}
 void reset() { s = def; init(); }
 
 void process(float dt) {
@@ -81,7 +92,7 @@ void text(char* t, float x, float y) {
     SetTextColor(frame_device_context, RGB(255, (s.frames / 22) % 255, 255));
     SetBkMode(frame_device_context, 2);
     SetBkColor(frame_device_context, RGB(0, 111, 111));
-    RECT r = { x, y, 234, 32 };
+    RECT r = { x, y, 234, 64 };
     DrawTextA(frame_device_context, t, -1, &r, 0);
 }
 void paint(struct frame f) {
@@ -94,7 +105,7 @@ void paint(struct frame f) {
     for (int i = 0; i < count; i++) {
         if (s.scene[i].is_spawned) { point(f, s.scene[i].x, s.scene[i].y); }
     }
-    char str[64]; sprintf(str, "Hi! %i %i", s.spawned, count);
+    char str[64]; sprintf(str, "Hi! %i/:%i\n f:%ik", count, s.spawned, s.frames/1000);
     text(str, 0, 0);
 }
 
@@ -110,17 +121,17 @@ LRESULT CALLBACK wpm(HWND window_handle,
     int x = LOWORD(lParam);
     int y = frame.height - HIWORD(lParam);
 
-
     if (message == WM_KEYDOWN && wParam == 'R') reset();
-    if (message == WM_KEYDOWN && wParam == VK_ESCAPE) s.quit=1;
+    if (message == WM_KEYDOWN && wParam == 'L') load();
+    if (message == WM_KEYDOWN && wParam == 'J') save();
+    if (message == WM_KEYDOWN && wParam == VK_ESCAPE) { s.quit = 1; }
     if (message == WM_RBUTTONDOWN) printf("R click!\n");
     if (message == WM_LBUTTONDOWN) printf("L click! %i %i\n", x, y);
-
 
     switch (message) {
     case WM_QUIT: {} break;
     case WM_DESTROY: {
-        s.quit = 1;
+          s.quit = 1; 
     } break;
     case WM_MOUSEMOVE: {
         spawn( (struct node) { .x =x, .y = y } );
@@ -204,24 +215,27 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
         DEFAULT_PITCH, L"Comic Sans MS");
 
+    init();
+
+
     while (!s.quit) {
+        process(.01);
+
         while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))  { 
             DispatchMessage(&msg);
-
         }
 
-        process(.01);
+    if (s.frames == 2) {
+            console();
+            consoleWindow = GetConsoleWindow();
+            SetWindowPos(consoleWindow, 0, 33, 432, 512, 256, 0);
+            SetForegroundWindow(window_handle);
+            init();
+        }
 
     InvalidateRect(window_handle, NULL, FALSE);
     UpdateWindow(window_handle);
 
-    if (s.frames == 1) {
-        console();
-        consoleWindow = GetConsoleWindow();
-        SetWindowPos(consoleWindow, 0, 33, 432, 512, 256, 0);
-        SetForegroundWindow(window_handle);
-        init();
-    }
 
     }
     return 0;

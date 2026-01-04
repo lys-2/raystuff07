@@ -1,24 +1,23 @@
-#if defined(_WIN32)
 #define _CRT_SECURE_NO_WARNINGS
-#endif
 #include <stdio.h>
 #include <windows.h>
 #define count 23451
 
 struct frame { int width; int height; unsigned char* pixels; } frame;
 struct node { char name[8], is_spawned, is_attached; int x, y, at; };
-struct state { 
+struct state {
     struct node scene[count];
     int nodes, frames, spawned;
-    char quit, log; };
+    char quit, log;
+};
 struct state s, def;
 
-void delete(int id) { 
+void delete(int id) {
     s.scene[id].is_spawned = 0; s.spawned--;
     printf("- %i\n", id);
 }
-int slot() { 
-    if (!s.scene[s.nodes%count].is_spawned) return s.nodes%count;
+int slot() {
+    if (!s.scene[s.nodes % count].is_spawned) return s.nodes % count;
     for (int i = 0; i < count; i++) {
         if (!s.scene[i].is_spawned) return i;
     }
@@ -36,7 +35,7 @@ void spawn(struct node n) {
 
 void point(struct frame f, float x, float y) {
     if (x >= 0 && x < f.width && y >= 0 && y < f.height)
-    f.pixels[1 + (int)(x+y*f.width) * 4] = 255;
+        f.pixels[1 + (int)(x + y * f.width) * 4] = 255;
 }
 
 void load() {
@@ -48,7 +47,7 @@ void init() {
     printf("Hi!\n");
 };
 
-void save() { 
+void save() {
     FILE* fptr = fopen("save_nr", "wb");
     if (fptr) fwrite(&s, sizeof(s), 1, fptr);
     fclose(fptr);
@@ -57,10 +56,10 @@ void reset() { s = def; init(); }
 
 void process(float dt) {
 
-    if (s.frames<count) {
+    if (s.frames < count) {
         spawn(
             (struct node) {
-            .x = rand(s.frames) % frame.width, .y = rand(s.frames) % frame.height
+            .x = rand() % frame.width, .y = rand() % frame.height
         }
         );
     }
@@ -69,9 +68,9 @@ void process(float dt) {
         if (!s.scene[i].is_spawned) continue;
         if (rand() % 12 == 8) {
             s.scene[i].y -= rand() % 2;
-            s.scene[i].x += 2-rand()%5;
-            }
-        if (s.scene[i].y <= 0) delete(i); 
+            s.scene[i].x += 2 - rand() % 5;
+        }
+        if (s.scene[i].y <= 0) delete(i);
     }
     s.frames++;
 }
@@ -100,12 +99,12 @@ void paint(struct frame f) {
         int y = i / f.width;
         int x = i % f.width;
         f.pixels[1 + i * 4] = x % 33;
-        f.pixels[i * 4] = (y/5)%77;
+        f.pixels[i * 4] = (y / 5) % 77;
     }
     for (int i = 0; i < count; i++) {
         if (s.scene[i].is_spawned) { point(f, s.scene[i].x, s.scene[i].y); }
     }
-    char str[64]; sprintf(str, "Hi! %i/:%i\n f:%ik", count, s.spawned, s.frames/1000);
+    char str[64]; sprintf(str, "Hi! %i/:%i\n f:%ik", count, s.spawned, s.frames / 1000);
     text(str, 0, 0);
 }
 
@@ -131,12 +130,12 @@ LRESULT CALLBACK wpm(HWND window_handle,
     switch (message) {
     case WM_QUIT: {} break;
     case WM_DESTROY: {
-          s.quit = 1; 
+        s.quit = 1;
     } break;
     case WM_MOUSEMOVE: {
-        spawn( (struct node) { .x =x, .y = y } );
+        spawn((struct node) { .x = x, .y = y });
     } break;
-    
+
     case WM_PAINT: {
 
         device_context = BeginPaint(window_handle, &ps);
@@ -154,7 +153,7 @@ LRESULT CALLBACK wpm(HWND window_handle,
             SRCCOPY);
 
         EndPaint(window_handle, &ps);
-      //  SetWindowTextA(window_handle, "snry rpg sn0833");
+        //  SetWindowTextA(window_handle, "snry rpg sn0833");
 
     } break;
 
@@ -221,11 +220,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     while (!s.quit) {
         process(.01);
 
-        while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))  { 
+        while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
             DispatchMessage(&msg);
         }
 
-    if (s.frames == 2) {
+        if (s.frames == 2) {
             console();
             consoleWindow = GetConsoleWindow();
             SetWindowPos(consoleWindow, 0, 33, 432, 512, 256, 0);
@@ -233,8 +232,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             init();
         }
 
-    InvalidateRect(window_handle, NULL, FALSE);
-    UpdateWindow(window_handle);
+        InvalidateRect(window_handle, NULL, FALSE);
+        UpdateWindow(window_handle);
 
 
     }

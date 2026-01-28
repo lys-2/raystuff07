@@ -189,7 +189,7 @@ void draw_point2d(int x, int y, struct color c) {
     frame.pixels[2+(x + y * frame.width) * 4] = c.r;
 };
 void draw_line(struct point a, struct point b, struct color c) {
-    int d = len((struct v2) {a.p.x, a.p.y}, (struct v2) { b.p.x, b.p.y });
+    int d = len((struct v2) {a.p.x, a.p.y});
     for (ln i = 0; i <= d; i++) {
         draw_point2d(
             lerp(a.p.x, b.p.x, i / (db)d),
@@ -311,7 +311,6 @@ struct actor scene[22] = {
   // {.name = "sphere", item, .t = {0.,0.,0.,0.,0.,0.,22222.,111.,22222.}},
     {.name = "sphere", item, .t = {0.,0.,0.,0.,0.,0.,111.,111.,111.}},
     {.name = "plane", item, .t = {0.,0.,0.,0.,1.,0.,1.,1.,1.}},
-
     //  {.name = "dungeon", place, .parent = town},
 };
 struct actor items_lib[16] = {
@@ -602,13 +601,13 @@ void ren2() {
     srand(0);
     for (ln i = 0; i < 1111; i++)
     {
-        draw_point2d(12 + rand(i) % 111, 12 + rand(i) % 111, (struct color) {255});
+        draw_point2d(12 + rand() % 111, 12 + rand() % 111, (struct color) {255});
     }
 
     for (ln i = 0; i < 111; i++)
     {
         draw_line(
-            (struct point) {rand(i)%111, rand(i)%222, rand(i)%222},
+            (struct point) {rand()%111, rand()%222, rand()%222},
             (struct point) {0.}, (struct color) { 0, 0, 255, 255 }
         );
     }
@@ -617,9 +616,9 @@ void ren2() {
     {
         tri(
             (struct triangle) {
-            (struct point) {rand(i)%333, rand(i)%222, rand(i)%222},
-            (struct point) {rand(i)%333, rand(i)%222, rand(i)%222},
-            (struct point) {rand(i)%333, rand(i)%222, rand(i)%222}
+            (struct point) {rand()%333, rand()%222, rand()%222},
+            (struct point) {rand()%333, rand()%222, rand()%222},
+            (struct point) {rand()%333, rand()%222, rand()%222}
         }, (struct color) { 0, 121, 0, 11 }
         );
     }
@@ -833,7 +832,6 @@ LRESULT CALLBACK WindowProcessMessage(HWND window_handle,
     if (message == WM_KEYDOWN && wParam == 'C') { mode(first); }
 
    // if (message == WM_KEYDOWN) { clear(); get(); }
-
 
     switch (message) {
     case WM_QUIT:

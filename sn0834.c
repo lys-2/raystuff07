@@ -1,22 +1,22 @@
-#if defined(_WIN32)
+
 #define _CRT_SECURE_NO_WARNINGS
-#endif
 
 #include <windows.h>
 #include <stdio.h>
 #include <mmsystem.h>
-#pragma comment(lib, "winmm.lib") 
 #include "resource.h"
-
+#include <d3d9.h>
+#include <shellapi.h> 
 #include <mfapi.h>
 #include <Mfidl.h>
 #include <mfreadwrite.h>
 
+#pragma comment(lib, "winmm.lib") 
+#pragma comment (lib, "d3d9.lib")
 #pragma comment (lib, "mfuuid")
 #pragma comment(lib, "mfplat")
 #pragma comment(lib, "mf")
 #pragma comment(lib, "mfreadwrite")
-#include <shellapi.h> 
 #pragma comment(lib, "shell32.lib")
 #define MY_WM_NOTIFYICON (WM_USER + 1)
 #define ICON_UID 1
@@ -26,6 +26,7 @@ HICON icon;
 #define count 4567
 #define ver "sn0834a"
 #define $p s.scene[i].is_spawned
+#define $a s.controlled.at
 #define $t s.scene[i].type
 #define $x s.scene[i].x
 #define $y s.scene[i].y
@@ -34,22 +35,22 @@ HICON icon;
 #define $c s.controlled
 #define $lp for (int i = 0; i < count; i++)
 #define $v2 (struct v2){
+#define $d (struct node){
 
 struct v2 { float x, y; };
 struct line { float x, y; };
+struct circle { struct v2 p; float r; };
+struct hit { struct v2 p, n; };
 struct frame { int width; int height; unsigned char* pixels; } frame;
 
-unsigned char* data;
-UINT32 width;
-UINT32 height;
-
-enum type { leaf, env, unit, banana, cam, cur };
+enum type { leaf, env, unit, banana, cam, cur, scene };
 enum mode { mDraw, mUnit };
-struct action { char a:1, t:1; };
+struct action { char a : 1, t : 1; };
 struct node {
     char name[8], is_spawned,
-     is_attached, is_controlled; enum type type;
-    float x, y, sx, sy, r; int at; };
+        is_attached, is_controlled; enum type type;
+    float x, y, sx, sy, r; int at;
+};
 struct state {
     struct node scene[count];
     int nodes, frames, spawned, actions, controlled;
@@ -60,7 +61,7 @@ struct state {
 struct state s, def;
 
 void sound() {
-   PlaySound(&s, 0, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+    PlaySound(&s, 0, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
 }
 
 void delete(int id) {
@@ -82,7 +83,7 @@ void spawn(struct node n) {
     s.scene[slot()] = n;
 
     if (n.type == unit) {
-        $lp { s.scene[i].is_controlled = 0; }
+        $lp{ s.scene[i].is_controlled = 0; }
         n.is_controlled = 1;
         s.controlled = sl;
     }
@@ -104,13 +105,30 @@ void point(struct frame f, float x, float y) {
 }
 float lerp(float a, float b, float f) {
     float r = a * (1.0 - f) + (b * f);
-   // printf("l %f, %f, %f  = %f\n", a, b,f, r );
+    // printf("l %f, %f, %f  = %f\n", a, b,f, r );
     return r;
 }
 float len(struct v2 v) { return sqrt(v.x * v.x + v.y * v.y); };
+
+struct v2 rot(struct v2 p, struct v2 c, float a) {
+    p.x -= c.x;
+    p.y -= c.y;
+    float x2 = p.x * cos(-a) - p.y * sin(-a);
+    float y2 = p.x * sin(-a) + p.y * cos(-a);
+    p.x = c.x + x2;
+    p.y = c.y + y2;
+    return p;
+};
+struct v2 forward(struct v2 p, float angle, float d) {
+    struct v2 f = { cos(angle), sin(angle) };
+    p.x += f.x * d;
+    p.y += f.y * d;
+    return p;
+}
+
 void line(struct frame f, struct v2 a, struct v2 b) {
-    float d = len((struct v2) { a.x-b.x, a.y-b.y });
-    d = d/1.;
+    float d = len((struct v2) { a.x - b.x, a.y - b.y });
+    d = d / 1.;
     for (float i = 0; i <= d; i++) {
         point(f,
             lerp(a.x, b.x, (i / d)),
@@ -126,9 +144,9 @@ void load() {
     }
 }
 
-
 void init() {
     printf("Hi!\n");
+
 };
 
 void save() {
@@ -143,31 +161,33 @@ void reset() { s = def; init(); s.frames = 3; }
 void move(int id, float x, float y) {
     float x$ = s.scene[id].x + x;
     float y$ = s.scene[id].y + y;
-    $lp {
+    $lp{
         if ($p && $t == env) {
-            char r = p2p($v2 $x, $y }, $v2 x$, y$ });
-            if (r) { return; }
-        }
-    }
-    s.scene[id].x = x$; s.scene[id].y = y$;
+            char r = p2p($v2 $x, $y
+ }, $v2 x$, y$ });
+    if (r) { return; }
+}
+}
+s.scene[id].x = x$; s.scene[id].y = y$;
 }
 
 void tick(float dt, int i) {
     if (!$p) return;
-    if ($t==unit) move(i,0,-.01);
+    if ($t == unit) move(i, 0, -.01);
 
 }
 void process(float dt) {
 
     if (s.frames < count) {
         spawn(
-            (struct node) { .type=leaf,
-            .x = rand() % frame.width, .y = rand() % frame.height
+            (struct node) {
+            .type = leaf,
+                .x = rand() % frame.width, .y = rand() % frame.height
         }
         );
     }
 
-    $lp {
+    $lp{
         if (!$p) continue;
         if (rand() % 12 == 8 && s.scene[i].type == leaf) {
             s.scene[i].y -= rand() % 2;
@@ -187,6 +207,17 @@ void clear(struct frame f) {
         }
     }
 }
+
+unsigned char* data;
+UINT32 width;
+UINT32 height;
+
+char is_d3d;
+LPDIRECT3D9 d3d;    // the pointer to our Direct3D interface
+LPDIRECT3DDEVICE9 d3ddev;    // the pointer to the device class
+void initD3D(HWND hWnd);    // sets up and initializes Direct3D
+void render_frame(void);    // renders a single frame
+void cleanD3D(void);    // closes Direct3D and releases memory
 
 static HDC device_context, frame_device_context;
 HFONT font;
@@ -213,23 +244,30 @@ void paint(struct frame f) {
     }
 
     for (int i = 0; i < width * height; ++i) {
-       if(data[i]>115) point(f, i % width, height-(i / width));
+        if (data[i] > 115) point(f, i % width, height - (i / width));
     }
 
     for (int i = 0; i < count; i++) {
-        if (!$p)  continue; 
+        if (!$p)  continue;
         point(f, s.scene[i].x, s.scene[i].y);
-        if ($t==unit) {
+        if ($t == unit) {
             for (int i2 = 0; i2 < 55; i2++) {
-                point(f, s.scene[i].x + 6-rand()%13, s.scene[i].y + 6-rand()%13);
+                point(f, s.scene[i].x + 6 - rand() % 13, s.scene[i].y + 6 - rand() % 13);
+                struct v2 p = rot((struct v2) { $x, $y + rand() % 11 }, (struct v2) { $x, $y }, rand() % 1111);
+                point(f, p.x, p.y);
             }
-            if (i==$c)
+            if (i == $c)
                 line(f,
-                    (struct v2) {s.scene[i].x+13,s.scene[i].y},
-                    (struct v2) {s.scene[i].x,s.scene[i].y+13}
+                    (struct v2) {
+                s.scene[i].x + 13, s.scene[i].y
+            },
+                    (struct v2) {
+                s.scene[i].x, s.scene[i].y + 13
+            }
                 );
         }
-     //   if ($t == marker) { text("~~1", $x, frame.height-$y); }
+
+        //   if ($t == marker) { text("~~1", $x, frame.height-$y); }
 
     }
     char str[64]; sprintf(str, "Hi! %i/:%i\n f:%ik", count, s.spawned, s.frames / 1000);
@@ -243,9 +281,9 @@ void AddTrayIcon(HWND hWnd, HINSTANCE hInstance) {
     nid.uID = ICON_UID;
     nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     nid.uCallbackMessage = MY_WM_NOTIFYICON;
-    nid.hIcon = icon; 
-    lstrcpy(nid.szTip, TEXT("snry template")); 
-    Shell_NotifyIcon(NIM_ADD, &nid); 
+    nid.hIcon = icon;
+    lstrcpy(nid.szTip, TEXT("snry template"));
+    Shell_NotifyIcon(NIM_ADD, &nid);
 
 }
 
@@ -396,11 +434,9 @@ LRESULT CALLBACK wpm(HWND window_handle,
     int y = frame.height - HIWORD(lParam);
 
     if (message == WM_KEYDOWN && wParam == 'R') reset();
-    if (message == WM_KEYDOWN && wParam == 'Q') $lp{$t = leaf; }
+    if (message == WM_KEYDOWN && wParam == 'Q') $lp{ $t = leaf; }
     if (message == WM_KEYDOWN && wParam == 'E') s.select_type = banana;
     if (message == WM_KEYUP && wParam == 'E') s.select_type = unit;
-    if (message == WM_KEYDOWN && wParam == 'T') s.select_type = banana;
-    if (message == WM_KEYUP && wParam == 'T') s.select_type = unit;
     if (message == WM_KEYDOWN && wParam == 'W') move($c, 0, 1);
     if (message == WM_KEYDOWN && wParam == 'S') move(s.controlled, 0, -1);
     if (message == WM_KEYDOWN && wParam == 'A') move(s.controlled, -1, 0);
@@ -408,14 +444,17 @@ LRESULT CALLBACK wpm(HWND window_handle,
     if (message == WM_KEYDOWN && wParam == 'L') load();
     if (message == WM_KEYDOWN && wParam == 'J') save();
     if (message == WM_KEYDOWN && wParam == 'C') cams();
+    if (message == WM_KEYDOWN && wParam == 'X') if (!is_d3d) initD3D(window_handle);
+    if (message == WM_KEYUP && wParam == 'X') cleanD3D();
+
     if (message == WM_KEYDOWN && wParam == VK_ESCAPE) { s.quit = 1; }
     if (message == WM_RBUTTONDOWN) {
         spawn((struct node) { "~~~", .type = s.select_type, .x = x, .y = y });
     }
-    if (message == WM_LBUTTONDOWN)    {
-        spawn((struct node) { .type= env, .x = x, .y = y });
+    if (message == WM_LBUTTONDOWN) {
+        spawn((struct node) { .type = env, .x = x, .y = y });
         s.is_spawn = 1;
-        }
+    }
     if (message == WM_LBUTTONUP) { s.is_spawn = 0; }
     switch (message) {
     case WM_CREATE:
@@ -437,7 +476,7 @@ LRESULT CALLBACK wpm(HWND window_handle,
             spawn((struct node) { .type = leaf, .x = x, .y = y });
             spawn((struct node) { .type = env, .x = x, .y = y });
         };
-        wave_step = 6.283 / (SAMPLING_RATE / (float)x/11.);
+        wave_step = 6.283 / (SAMPLING_RATE / (float)x / 11.);
     } break;
 
     case WM_PAINT: {
@@ -483,6 +522,53 @@ LRESULT CALLBACK wpm(HWND window_handle,
 
 }
 
+
+void initD3D(HWND hWnd)
+{
+    d3d = Direct3DCreate9(D3D_SDK_VERSION);    // create the Direct3D interface
+
+    D3DPRESENT_PARAMETERS d3dpp;    // create a struct to hold various device information
+
+    ZeroMemory(&d3dpp, sizeof(d3dpp));    // clear out the struct for use
+    d3dpp.Windowed = TRUE;    // program windowed, not fullscreen
+    d3dpp.SwapEffect = D3DSWAPEFFECT_DISCARD;    // discard old frames
+    d3dpp.hDeviceWindow = hWnd;    // set the window to be used by Direct3D
+
+
+    // create a device class using this information and the info from the d3dpp stuct
+    d3d->lpVtbl->CreateDevice(d3d, D3DADAPTER_DEFAULT,
+        D3DDEVTYPE_HAL,
+        hWnd,
+        D3DCREATE_SOFTWARE_VERTEXPROCESSING,
+        &d3dpp,
+        &d3ddev);
+
+    is_d3d = 1;
+
+}
+
+void cleanD3D(void)
+{
+    d3ddev->lpVtbl->Release(d3ddev);    // close and release the 3D device
+    d3d->lpVtbl->Release(d3ddev);    // close and release Direct3D
+    is_d3d = 0;
+}
+
+// this is the function used to render a single frame
+void render_frame(void)
+{
+    // clear the window to a deep blue
+    d3ddev->lpVtbl->Clear(d3ddev, 0, NULL, D3DCLEAR_TARGET, D3DCOLOR_XRGB(123, 40, 100), 1.0f, 0);
+
+    d3ddev->lpVtbl->BeginScene(d3ddev);    // begins the 3D scene
+
+
+
+    d3ddev->lpVtbl->EndScene(d3ddev);    // ends the 3D scene
+
+    d3ddev->lpVtbl->Present(d3ddev, NULL, NULL, NULL, NULL);   // displays the created frame on the screen
+}
+
 HANDLE hConsole;
 HWND consoleWindow;
 void console() {
@@ -505,7 +591,7 @@ void CALLBACK WaveOutProc(HWAVEOUT wave_out_handle, UINT message,
     case WOM_DONE: {
         for (int i = 0; i < CHUNK_SIZE; ++i) {
             chunks[chunk_swap][i] = sin(wave_position) *
-                32000*s.spawned/count* s.is_spawn;
+                32000 * s.spawned / count * s.is_spawn;
             wave_position += wave_step;
         }
         waveOutWrite(wave_out, &header[chunk_swap],
@@ -522,7 +608,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     int screenHeight = GetSystemMetrics(SM_CYSCREEN);
     window_class.lpfnWndProc = wpm;
     window_class.hInstance = hInstance;
-    window_class.lpszClassName = "My Window Class";
+    window_class.lpszClassName = L"My Window Class";
     window_class.hCursor = LoadCursor(NULL, IDC_ARROW);
     RegisterClass(&window_class);
     icon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ICON1));
@@ -532,16 +618,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     frame_bitmap_info.bmiHeader.biBitCount = 32;
     frame_bitmap_info.bmiHeader.biCompression = BI_RGB;
     frame_device_context = CreateCompatibleDC(0);
-    window_handle = CreateWindow("My Window Class", L"snry template",
+    window_handle = CreateWindow(L"My Window Class", L"snry template",
         WS_OVERLAPPEDWINDOW | WS_VISIBLE,
         123, 123, 512, 256, NULL, NULL, hInstance, NULL);
     SendMessage(window_handle, WM_SETICON, ICON_BIG, (LPARAM)icon);
-
 
     //HRSRC hResInfo = FindResource(NULL, MAKEINTRESOURCE(IDR_MAP2), L"map");
     //HGLOBAL hResData = LoadResource(NULL, hResInfo);
     //char* d = LockResource(hResData);
     //memcpy(&s, d, sizeof(s));
+
 
     format.nBlockAlign = format.nChannels * format.wBitsPerSample / 8;
     format.nAvgBytesPerSec = format.nSamplesPerSec * format.nBlockAlign;
@@ -556,13 +642,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         header[i].dwBufferLength = CHUNK_SIZE * 2;
         waveOutPrepareHeader(wave_out, &header[i], sizeof(header[i]));
         for (int i = 0; i < CHUNK_SIZE; ++i) {
-            chunks[chunk_swap][i] = sin(wave_position) * i*vol;
+            chunks[chunk_swap][i] = sin(wave_position) * i * vol;
             wave_position += wave_step;
         }
         waveOutWrite(wave_out, &header[i], sizeof(header[i]));
 
     }
- 
+
+    init();
+
     while (!s.quit) {
         process(.01);
 
@@ -570,28 +658,29 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             DispatchMessage(&msg);
         }
 
+        if (is_d3d) render_frame();
+
         if (s.frames == 1) {
             console();
             consoleWindow = GetConsoleWindow();
             SetWindowPos(consoleWindow, 0, 33, 432, 512, 256, 0);
             SetForegroundWindow(window_handle);
-            init();
 
-   /*        hr = MFCreateSourceReaderFromMediaSource(ppSource, pAttr, &pReader);
-            printf("R %i\n", (int)hr);
+            /*        hr = MFCreateSourceReaderFromMediaSource(ppSource, pAttr, &pReader);
+                     printf("R %i\n", (int)hr);
 
-            DWORD dwStreamIndex = 0;
-            DWORD dwMediaTypeIndex = 0;
-            IMFMediaType* pType = NULL;
-           hr = pReader->lpVtbl->GetNativeMediaType(pReader, dwStreamIndex, dwMediaTypeIndex, pType);*/
+                     DWORD dwStreamIndex = 0;
+                     DWORD dwMediaTypeIndex = 0;
+                     IMFMediaType* pType = NULL;
+                    hr = pReader->lpVtbl->GetNativeMediaType(pReader, dwStreamIndex, dwMediaTypeIndex, pType);*/
 
         }
 
-       if (s.frames == 2) { load(); };
+        if (s.frames == 2) { load(); };
 
-       if (s.frames == 1) {
-       
-       }
+        if (s.frames == 1111) {
+
+        }
 
         InvalidateRect(window_handle, NULL, FALSE);
         UpdateWindow(window_handle);

@@ -1,16 +1,30 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
 #include <windows.h>
-#define count 23451
 
+#define count 123456
+#define orange (struct color){255,111,0,255}
+#define cyan (struct color){0,255,255,255}
+#define yellow (struct color){255,255,0,255}
+
+typedef struct v2 { float x, y; };
+struct color { char r, g, b, a; };
+enum type { leaf, tile };
 struct frame { int width; int height; unsigned char* pixels; } frame;
-struct node { char name[8], is_spawned, is_attached; int x, y, at; };
+struct node { char name[8], type, is_spawned, is_attached; int x, y, at; struct color c; };
 struct state {
     struct node scene[count];
     int nodes, frames, spawned;
     char quit, log;
 };
 struct state s, def;
+
+float lerp(float a, float b, float f) {
+    float r = a * (1.0 - f) + (b * f);
+    return r;
+}
+float len(struct v2 v) { return sqrt(v.x * v.x + v.y * v.y); };
+float dist(struct v2 a, struct v2 b) { return len((struct v2) { a.x - b.x, a.y - b.y }); };
 
 void delete(int id) {
     s.scene[id].is_spawned = 0; s.spawned--;
@@ -33,9 +47,12 @@ void spawn(struct node n) {
     printf("++ %i\n", sl);
 }
 
-void point(struct frame f, float x, float y) {
-    if (x >= 0 && x < f.width && y >= 0 && y < f.height)
-        f.pixels[1 + (int)(x + y * f.width) * 4] = 255;
+void point(struct frame f, float x, float y, struct color c) {
+    if (x >= 0 && x < f.width && y >= 0 && y < f.height) {
+        f.pixels[0 + (int)(x + y * f.width) * 4] = c.b;
+        f.pixels[1 + (int)(x + y * f.width) * 4] = c.g;
+        f.pixels[2 + (int)(x + y * f.width) * 4] += c.r;
+    }
 }
 
 void load() {
@@ -57,20 +74,16 @@ void reset() { s = def; init(); }
 void process(float dt) {
 
     if (s.frames < count) {
-        spawn(
-            (struct node) {
-            .x = rand() % frame.width, .y = rand() % frame.height
-        }
-        );
+        //   spawn((struct node) {.x = rand() % frame.width, .y = rand() % frame.height});
     }
 
     for (int i = 0; i < count; i++) {
         if (!s.scene[i].is_spawned) continue;
-        if (rand() % 12 == 8) {
-            s.scene[i].y -= rand() % 2;
+        if (s.scene[i].type == leaf && rand() % 12 == 8) {
+            s.scene[i].y += 2 - rand() % 5;
             s.scene[i].x += 2 - rand() % 5;
         }
-        if (s.scene[i].y <= 0) delete(i);
+        if (s.scene[i].type == leaf && rand() % 115 == 0) delete(i);
     }
     s.frames++;
 }
@@ -102,7 +115,11 @@ void paint(struct frame f) {
         f.pixels[i * 4] = (y / 5) % 77;
     }
     for (int i = 0; i < count; i++) {
-        if (s.scene[i].is_spawned) { point(f, s.scene[i].x, s.scene[i].y); }
+        if (s.scene[i].is_spawned) {
+            point(f, s.scene[i].x, s.scene[i].y,
+                s.scene[i].c
+            );
+        }
     }
     char str[64]; sprintf(str, "Hi! %i/:%i\n f:%ik", count, s.spawned, s.frames / 1000);
     text(str, 0, 0);
@@ -124,8 +141,27 @@ LRESULT CALLBACK wpm(HWND window_handle,
     if (message == WM_KEYDOWN && wParam == 'L') load();
     if (message == WM_KEYDOWN && wParam == 'J') save();
     if (message == WM_KEYDOWN && wParam == VK_ESCAPE) { s.quit = 1; }
-    if (message == WM_RBUTTONDOWN) printf("R click!\n");
-    if (message == WM_LBUTTONDOWN) printf("L click! %i %i\n", x, y);
+    if (message == WM_RBUTTONDOWN) {
+        for (int i = 0; i < count; i++) {
+            if (!s.scene[i].is_spawned || s.scene[i].type != tile) continue;
+            if (dist((struct v2) { x, y }, (struct v2) { s.scene[i].x, s.scene[i].y }) < 30.)
+                delete(i);
+        }
+    }
+    if (message == WM_LBUTTONDOWN) {
+        printf("L click! %i %i\n", x, y);
+        for (int i = 0; i < count; i++) {
+            if (!s.scene[i].is_spawned || s.scene[i].type != tile) continue;
+            if (dist((struct v2) { x, y }, (struct v2) { s.scene[i].x, s.scene[i].y }) < 30.)
+                delete(i);
+        }
+        for (int i = 0; i < frame.width * frame.height; i++) {
+            int my = i / frame.width;
+            int mx = i % frame.width;
+            if (dist((struct v2) { x, y }, (struct v2) { mx, my }) < 30.)
+                spawn((struct node) { .type = tile, "asd", .x = mx, .y = my, .c = orange });
+        }
+    }
 
     switch (message) {
     case WM_QUIT: {} break;
@@ -133,7 +169,7 @@ LRESULT CALLBACK wpm(HWND window_handle,
         s.quit = 1;
     } break;
     case WM_MOUSEMOVE: {
-        spawn((struct node) { .x = x, .y = y });
+        spawn((struct node) { .type = leaf, .x = x, .y = y, .c = cyan });
     } break;
 
     case WM_PAINT: {
@@ -216,7 +252,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
     init();
 
-
     while (!s.quit) {
         process(.01);
 
@@ -234,7 +269,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
         InvalidateRect(window_handle, NULL, FALSE);
         UpdateWindow(window_handle);
-
 
     }
     return 0;
